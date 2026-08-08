@@ -38,11 +38,13 @@ jobs:
         run: pnpm lint
 
       - name: Test
-        run: pnpm test -- --coverage
+        run: pnpm test
 
       - name: Build
         run: pnpm build
 
+      # Coverage runs per package: the workspace runner writes one merged report,
+      # which would let a thin package hide behind a well-tested one.
       - name: Coverage gates (caption-engine 90%, billing 95%)
         run: pnpm coverage:gate
 

@@ -1,0 +1,176 @@
+/*
+ * Projector surface.
+ *
+ * OBS renders this in CEF and composites the result onto a live frame. Every
+ * animated property below is `transform` or `opacity` so the work stays on the
+ * compositor thread — a reflow here is a dropped frame on air.
+ *
+ * All colours, sizes and margins arrive as custom properties from lib/styles.ts
+ * and the resolved render config, so a preset switch never touches the DOM.
+ */
+
+/* The app shell paints a solid background; the projector must not paint at all. */
+html,
+body {
+  background-color: transparent !important;
+}
+
+.projector-root {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: none;
+
+  font-family: var(--sub-font, ui-sans-serif, system-ui, 'Segoe UI', Roboto, sans-serif);
+  font-variant-numeric: tabular-nums;
+  font-kerning: normal;
+}
+
+/* The voice surface has no visual output at all. */
+.projector-root--voice {
+  visibility: hidden;
+}
+
+/* Title-safe area. Nothing inside it may appear unless the viewer asked for it. */
+.sub-stage {
+  position: absolute;
+  inset: var(--sub-safe);
+}
+
+.sub-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  will-change: transform, opacity;
+  animation: sub-card-in var(--sub-swap-ms) linear both;
+}
+
+/*
+ * The outgoing half of a post-commit retract. Both revisions overlap for the
+ * length of the crossfade, so the card is replaced whole — never word by word.
+ */
+.sub-card--out {
+  animation: sub-card-out var(--sub-swap-ms) linear both;
+}
+
+.sub-block + .sub-block {
+  margin-top: calc(var(--sub-line-h) * 0.12);
+}
+
+/* Clips the roll-up so the departing line leaves the frame instead of vanishing. */
+.sub-lines {
+  overflow: hidden;
+  height: calc(var(--sub-line-h) * var(--sub-visible-lines));
+}
+
+.sub-lines-inner {
+  will-change: transform;
+}
+
+.sub-lines-inner--roll {
+  transform: translateY(calc(-1 * var(--sub-line-h)));
+  animation: sub-rollup var(--sub-roll-ms) cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/*
+ * `pre-wrap`, not `pre`. Pre-broken text renders identically under both, but a
+ * block that arrives unbroken — translations are never line-broken upstream —
+ * would run off the raster under `pre`. Wrapping inside the safe area is the
+ * worse-case we can live with; text leaving the frame is not.
+ */
+.sub-line {
+  height: var(--sub-line-h);
+  line-height: var(--sub-line-h);
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sub-badge {
+  background: var(--sub-badge);
+  padding: var(--sub-badge-pad);
+  border-radius: var(--sub-radius);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.sub-text {
+  font-size: var(--sub-font-size);
+  font-weight: var(--sub-weight);
+  letter-spacing: var(--sub-tracking);
+  text-shadow: var(--sub-shadow);
+}
+
+.sub-text--stable {
+  color: var(--sub-stable-color);
+}
+
+/* The volatile tail: information ~200 ms early, dimmed so the eye skips it. */
+.sub-text--tail {
+  color: var(--sub-color);
+  opacity: 0.55;
+}
+
+/*
+ * There is deliberately no connection indicator. OBS composites this whole
+ * viewport onto the broadcast, so anything that appears when the socket drops
+ * appears on air exactly during the incident (PRODUCT.md §4: zero UI, never a
+ * system message). Connection state belongs to the studio.
+ */
+
+/* Trial watermark — the only branding allowed on this surface. */
+.sub-watermark {
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: #ffffff;
+  opacity: 0.45;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes sub-card-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sub-card-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sub-rollup {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(calc(-1 * var(--sub-line-h)));
+  }
+}
+
+/* Honoured by the panel preview; irrelevant inside OBS, which never sets it. */
+@media (prefers-reduced-motion: reduce) {
+  .sub-card,
+  .sub-lines-inner--roll {
+    animation: none;
+  }
+
+  /* Without the crossfade the outgoing revision would sit on top of the new one. */
+  .sub-card--out {
+    display: none;
+  }
+}

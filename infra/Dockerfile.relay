@@ -1,0 +1,51 @@
+# Bun image for apps/relay.
+#
+# Two toolchains, on purpose: pnpm owns the workspace and the lockfile, Bun owns
+# the runtime. The dependency tree is resolved by pnpm in a Node stage and then
+# handed to Bun, so the lockfile stays the single source of truth for versions.
+#
+# Build context is the repository root:
+#   docker build -f infra/Dockerfile.relay --target runtime .
+
+# ── Fetch: lockfile-only dependency download, cached across source changes ────
+FROM node:22-alpine AS fetch
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm fetch
+
+# ── Build: install the workspace, then flatten just the relay ─────────────────
+FROM fetch AS build
+COPY . .
+RUN pnpm install --frozen-lockfile --offline
+
+# `pnpm deploy` produces a self-contained directory with a real node_modules
+# instead of the symlink farm. Bun resolves it without any pnpm-specific
+# knowledge, and the workspace packages (@sub/contracts, @sub/caption-engine,
+# @sub/billing) come along as plain directories.
+#
+# Two things this assumes of the `relay` lane, both matching the conventions the
+# rest of the workspace already follows: the package is named @sub/relay and its
+# entry point is src/index.ts.
+RUN pnpm --filter @sub/relay deploy --prod /out
+
+# ── Runtime ───────────────────────────────────────────────────────────────────
+FROM oven/bun:1-alpine AS runtime
+# The graceful drain is the whole point of this init. Bun as PID 1 would inherit
+# the kernel's "no default action for SIGTERM" rule; tini gives the signal a
+# real delivery path and `-g` forwards it to the whole process group, so
+# DRAINING actually runs before the container dies.
+RUN apk add --no-cache tini
+ENV NODE_ENV=production \
+    RELAY_PORT=8787
+WORKDIR /app
+COPY --from=build --chown=bun:bun /out ./
+USER bun
+EXPOSE 8787
+ENTRYPOINT ["/sbin/tini", "-g", "--"]
+# Bun executes TypeScript directly; @sub/contracts and friends are consumed as
+# source, which keeps the wire types identical to what CI type-checked.
+CMD ["bun", "run", "src/index.ts"]

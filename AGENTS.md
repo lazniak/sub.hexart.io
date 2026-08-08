@@ -140,7 +140,7 @@ CI odpala też: `gitleaks` (sekrety), `pnpm audit --prod`, budowę obrazu Docker
 - Lokalnie: `.env.local` (w `.gitignore`), wzór w `.env.example` z pustymi wartościami.
 - Klucze ElevenLabs / OpenRouter / Paddle **istnieją tylko w `apps/relay` i server-side `apps/web`**. Jeśli klucz może trafić do bundla klienckiego — to błąd krytyczny, PR odrzucony.
 - Zakaz logowania: treści audio, transkrypcji, tokenów, e-maili w plaintext. Logi strukturalne (pino), pola wrażliwe redagowane whitelistą.
-- Audio użytkownika **nie jest zapisywane** — pass-through. Każdy PR, który to zmienia, wymaga aktualizacji `docs/legal/privacy-policy.md` w tym samym PR.
+- Audio użytkownika **nie jest zapisywane** — pass-through. Każdy PR, który to zmienia, wymaga aktualizacji polityki prywatności (`apps/web/app/(legal)/legal/prywatnosc/page.tsx`) w tym samym PR.
 
 ---
 

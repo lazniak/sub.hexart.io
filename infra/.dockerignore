@@ -1,0 +1,54 @@
+# Build context filter for the images in this directory.
+#
+# The build context is the REPOSITORY ROOT (compose sets `context: ..`), so this
+# file only applies when someone builds with `infra/` as the context. The copies
+# named Dockerfile.web.dockerignore / Dockerfile.relay.dockerignore are what
+# BuildKit actually reads for the root-context builds — it resolves an ignore
+# file next to the Dockerfile before falling back to the context root, and a
+# root-level .dockerignore belongs to no lane. deploy.sh asserts the three stay
+# identical.
+
+# Never in an image, under any circumstances.
+**/.env
+**/.env.*
+!**/.env.example
+**/*.key
+**/*.pem
+**/age.key
+**/*.dec.yaml
+infra/secrets
+
+# Reinstalled from the lockfile inside the build; copying host trees in would
+# both bloat the context and risk platform-specific binaries.
+**/node_modules
+.pnpm-store
+
+# Build output — regenerated in the image.
+**/.next
+**/dist
+**/build
+**/out
+**/*.tsbuildinfo
+
+# Test and tooling artefacts.
+**/coverage
+**/.nyc_output
+**/playwright-report
+**/test-results
+**/.vitest
+**/.turbo
+
+# Not needed to build or run anything.
+.git
+.github
+.husky
+.agents
+.vscode
+.idea
+docs
+infra
+**/*.md
+!README.md
+**/*.log
+**/.DS_Store
+**/Thumbs.db

@@ -2,6 +2,7 @@
   "name": "sub-hexart",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@9.15.4",
   "engines": {
     "node": ">=22"
@@ -15,7 +16,8 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "coverage:gate": "node scripts/coverage-gate.mjs",
+    "coverage": "pnpm --filter @sub/caption-engine --filter @sub/billing exec vitest run --coverage",
+    "coverage:gate": "pnpm coverage && node scripts/coverage-gate.mjs",
     "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "db:generate": "pnpm --filter @sub/db generate",
     "db:migrate": "pnpm --filter @sub/db migrate",

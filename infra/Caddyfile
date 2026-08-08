@@ -1,0 +1,119 @@
+# Caddy — the only thing on this VPS listening on a public port.
+#
+# TLS is fully automatic (HTTP-01 on :80, TLS-ALPN on :443). The prerequisites
+# are exactly two: the A record points here, and 80/443 are open. Certificates
+# and the ACME account key live in the `caddy_data` volume.
+
+{
+	email {$ACME_EMAIL}
+
+	# Admin API bound to loopback inside the container. The compose health check
+	# is its only consumer; nothing else may reach it.
+	admin 127.0.0.1:2019
+
+	servers {
+		timeouts {
+			# Bound the handshake, never the conversation. A caption socket is
+			# hijacked once upgraded, so no server write/idle timeout applies to
+			# it — these values only govern ordinary HTTP requests.
+			read_header 15s
+			idle 15m
+		}
+		protocols h1 h2 h3
+	}
+}
+
+(edge_headers) {
+	header {
+		Strict-Transport-Security "max-age=63072000; includeSubDomains; preload"
+		X-Content-Type-Options nosniff
+		-Server
+		-X-Powered-By
+
+		# `defer` makes these run after the upstream response is composed, so the
+		# edge value wins over whatever Next.js emitted.
+		defer
+	}
+	# Deliberately NOT set here: Content-Security-Policy, X-Frame-Options,
+	# Referrer-Policy. Next.js sets those per route and the /projector/* routes
+	# need a different, deliberately framable policy — see apps/web/next.config.ts.
+	# A blanket header at the edge would silently break OBS Browser Source.
+}
+
+(privacy_log) {
+	log {
+		output stdout
+		format filter {
+			wrap json
+			# An IP address is personal data (RODO) and access logs are the easiest
+			# place to leak it. The app hashes IPs with IP_HASH_SALT where it
+			# genuinely needs one; the edge log does not need one at all.
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+			}
+		}
+	}
+}
+
+(relay_proxy) {
+	reverse_proxy relay:8787 {
+		# Caddy proxies the Upgrade handshake transparently. `-1` disables
+		# response buffering so a caption frame is flushed the moment it arrives
+		# instead of waiting for the proxy's buffer to fill.
+		flush_interval -1
+
+		transport http {
+			dial_timeout 5s
+			# No response_header_timeout: the relay answers the upgrade quickly,
+			# but the connection it returns must be allowed to live for hours.
+			keepalive 30m
+			keepalive_idle_conns 64
+		}
+
+		# Active probe, so Caddy stops sending upgrades to a relay that is
+		# draining for a restart instead of hanging the studio.
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 2s
+		health_status 2xx
+	}
+}
+
+{$SITE_DOMAIN:sub.hexart.io} {
+	import edge_headers
+	import privacy_log
+
+	encode zstd gzip
+
+	# Fallback entry point. Some corporate proxies and OBS setups fail on a
+	# second hostname; this keeps the socket reachable on the primary one.
+	@relay path /relay /relay/*
+	handle @relay {
+		uri strip_prefix /relay
+		import relay_proxy
+	}
+
+	handle {
+		reverse_proxy web:3000 {
+			# Next streams RSC payloads and route handlers; do not buffer them.
+			flush_interval -1
+
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+		}
+	}
+}
+
+{$RELAY_DOMAIN:relay.sub.hexart.io} {
+	import edge_headers
+	import privacy_log
+
+	# No `encode` here: this host serves WebSocket upgrades and short JSON health
+	# responses. Compression would buy nothing and adds a hop of buffering.
+	import relay_proxy
+}

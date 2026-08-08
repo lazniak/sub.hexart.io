@@ -1,3 +1,3 @@
 import { defineWorkspace } from 'vitest/config'
 
-export default defineWorkspace(['packages/caption-engine', 'packages/billing'])
+export default defineWorkspace(['packages/caption-engine', 'packages/billing', 'apps/relay'])

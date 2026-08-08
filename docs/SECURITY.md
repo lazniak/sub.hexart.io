@@ -85,7 +85,7 @@ Projector token dostaje osobną przestrzeń nazw (`pt_` + 32 losowe bajty, base6
 - Logi: strukturalne (pino), pola wrażliwe przez whitelistę. Zakaz logowania treści transkrypcji, tokenów, pełnych e-maili (hash + domena). IP hashowane z solą, retencja 30 dni.
 - Podprocesorzy: ElevenLabs (US), OpenRouter (US), Paddle (UK/IE), Hetzner (DE), Vercel (US/EU), Neon (EU), Upstash (EU). Transfer do US na podstawie SCC + DPF, ujawniony w polityce prywatności i rejestrze.
 - Prawa: eksport danych (JSON) i usunięcie konta samoobsługowo w panelu, realizacja ≤ 30 dni.
-- **Zasada:** żaden PR nie może wprowadzić trwałego zapisu audio ani transkrypcji bez równoczesnej aktualizacji `docs/legal/privacy-policy.md`. CI oznacza takie PR-y etykietą `legal-review`.
+- **Zasada:** żaden PR nie może wprowadzić trwałego zapisu audio ani transkrypcji bez równoczesnej aktualizacji polityki prywatności (`apps/web/app/(legal)/legal/prywatnosc/page.tsx`). Takie PR-y dostają etykietę `legal-review`.
 
 ---
 

@@ -1,0 +1,299 @@
+# Production stack for sub.hexart.io — one VPS, everything behind Caddy.
+#
+# Run from the repository root:
+#   docker compose --env-file infra/.env -f infra/docker-compose.yml up -d --wait
+# or, preferably, through infra/deploy.sh which adds migrations and rollback.
+#
+# infra/.env is NEVER committed. See infra/secrets/README.md for how it is
+# produced from the SOPS-encrypted source of truth.
+
+name: sub-hexart
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+services:
+  # ── Edge ────────────────────────────────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - '80:80'
+      - '443:443'
+      # HTTP/3. Harmless if the client never uses it, meaningful on flaky mobile.
+      - '443:443/udp'
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+      SITE_DOMAIN: ${SITE_DOMAIN:-sub.hexart.io}
+      RELAY_DOMAIN: ${RELAY_DOMAIN:-relay.sub.hexart.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Losing this volume means re-issuing
+      # every certificate, which Let's Encrypt rate-limits. Back it up.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+    depends_on:
+      # Deliberately `service_started`, not `service_healthy`: if the app is
+      # broken we still want TLS terminated and a 502 served, not a dark site.
+      web:
+        condition: service_started
+      relay:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:2019/config/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── Application ─────────────────────────────────────────────────────────────
+  web:
+    image: sub-hexart/web:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      target: runtime
+      args:
+        # NEXT_PUBLIC_* are inlined into the client bundle at build time, so they
+        # must be build args. Nothing secret may ever appear here — build args are
+        # readable from the image history.
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?NEXT_PUBLIC_APP_URL is required}
+        NEXT_PUBLIC_RELAY_WS_URL: ${NEXT_PUBLIC_RELAY_WS_URL:?NEXT_PUBLIC_RELAY_WS_URL is required}
+        NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
+    restart: unless-stopped
+    logging: *logging
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOSTNAME: 0.0.0.0
+      # Composed here so the password lives in exactly one place in infra/.env.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sub}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-sub}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379
+      AUTH_SECRET: ${AUTH_SECRET:?AUTH_SECRET is required}
+      SESSION_JWT_PRIVATE_KEY: ${SESSION_JWT_PRIVATE_KEY:?SESSION_JWT_PRIVATE_KEY is required}
+      SESSION_JWT_PUBLIC_KEY: ${SESSION_JWT_PUBLIC_KEY:?SESSION_JWT_PUBLIC_KEY is required}
+      IP_HASH_SALT: ${IP_HASH_SALT:?IP_HASH_SALT is required}
+      PADDLE_ENV: ${PADDLE_ENV:-production}
+      PADDLE_API_KEY: ${PADDLE_API_KEY:-}
+      PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-noreply@sub.hexart.io}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NEXT_PUBLIC_RELAY_WS_URL: ${NEXT_PUBLIC_RELAY_WS_URL}
+      NEXT_PUBLIC_PADDLE_CLIENT_TOKEN: ${NEXT_PUBLIC_PADDLE_CLIENT_TOKEN:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # DELIBERATELY ABSENT: ELEVENLABS_*, OPENROUTER_*, PROVIDER_KEY_ENC_KEY.
+      # This process renders HTML; a provider key must never be one SSR bug away
+      # from the wire. AGENTS.md §7.
+    networks:
+      - edge
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # No dedicated health route exists yet, so this asserts the weaker but
+      # lane-independent property: the server answers HTTP without a 5xx.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  relay:
+    image: sub-hexart/relay:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.relay
+      target: runtime
+    restart: unless-stopped
+    logging: *logging
+    # Sessions drain on SIGTERM, and the final ledger flush happens at the end of
+    # that drain (Meter.close via registry.closeAll). The relay gives itself
+    # DRAIN_TIMEOUT_MS = 10 min for it, so anything shorter here means SIGKILL
+    # lands mid-drain: the broadcast is cut AND the last flush interval is lost.
+    # Keep this strictly above DRAIN_TIMEOUT_MS in apps/relay/src/config.ts.
+    stop_grace_period: 630s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      NODE_ENV: production
+      # Fixed inside the container; the host never sees this port directly.
+      RELAY_PORT: '8787'
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sub}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sub}
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # The relay's own schema (apps/relay/src/config.ts) reads SESSION_JWT_PUBLIC_KEY.
+      # infra/.env keeps the value under the _RELAY name so the operator can see at a
+      # glance which half of the pair each process gets; the mapping happens here.
+      SESSION_JWT_PUBLIC_KEY: ${SESSION_JWT_PUBLIC_KEY_RELAY:?SESSION_JWT_PUBLIC_KEY_RELAY is required}
+      ELEVENLABS_API_KEY_STT: ${ELEVENLABS_API_KEY_STT:?ELEVENLABS_API_KEY_STT is required}
+      ELEVENLABS_API_KEY_TTS: ${ELEVENLABS_API_KEY_TTS:?ELEVENLABS_API_KEY_TTS is required}
+      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v2_realtime}
+      ELEVENLABS_TTS_MODEL: ${ELEVENLABS_TTS_MODEL:-eleven_flash_v2_5}
+      ELEVENLABS_REGION: ${ELEVENLABS_REGION:-eu}
+      OPENROUTER_MANAGEMENT_API_KEY: ${OPENROUTER_MANAGEMENT_API_KEY:?OPENROUTER_MANAGEMENT_API_KEY is required}
+      OPENROUTER_MODEL_FAST: ${OPENROUTER_MODEL_FAST:?OPENROUTER_MODEL_FAST is required}
+      OPENROUTER_MODEL_QUALITY: ${OPENROUTER_MODEL_QUALITY:?OPENROUTER_MODEL_QUALITY is required}
+      PROVIDER_KEY_ENC_KEY: ${PROVIDER_KEY_ENC_KEY:?PROVIDER_KEY_ENC_KEY is required}
+      PROVIDER_KEY_ENC_VERSION: ${PROVIDER_KEY_ENC_VERSION:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      # DELIBERATELY ABSENT: AUTH_SECRET, SESSION_JWT_PRIVATE_KEY, PADDLE_*.
+      # The relay verifies session JWTs, it never mints them.
+    networks:
+      - edge
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # The relay serves /healthz (apps/relay/src/server.ts) and answers 503 while
+      # draining, which is what takes it out of Caddy's upstream pool on a deploy.
+      test: ['CMD', 'wget', '--quiet', '--tries=1', '--spider', 'http://127.0.0.1:8787/healthz']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Data ────────────────────────────────────────────────────────────────────
+  # Neither of these publishes a port. They sit on the `data` network, which is
+  # internal: no host binding, no route out to the internet.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 256mb
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-sub}
+      # Checksums turn silent disk corruption into a loud error. Only settable
+      # at initdb time — enabling it later means dump, re-init, restore.
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    command:
+      # Sized for a 4 GB VPS. Recalculate if you resize — infra/README.md §8.
+      - postgres
+      - -c
+      - max_connections=100
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=500ms
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logging
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    # `$$` defers expansion to the container's shell, so the password stays out
+    # of `docker compose config` output and out of the compose project metadata.
+    command:
+      - sh
+      - -c
+      - >
+        exec redis-server
+        --requirepass "$$REDIS_PASSWORD"
+        --appendonly yes
+        --appendfsync everysec
+        --save ""
+        --maxmemory 256mb
+        --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    networks:
+      - data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" --no-auth-warning ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  # ── One-shot jobs ───────────────────────────────────────────────────────────
+  # Not part of `up`; started explicitly by deploy.sh. A job that exits has no
+  # steady state to probe, so it carries no health check.
+  migrate:
+    image: sub-hexart/migrate:${IMAGE_TAG:-local}
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.web
+      target: migrator
+    profiles:
+      - tools
+    restart: 'no'
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-sub}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-sub}
+    networks:
+      - data
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+networks:
+  edge:
+    driver: bridge
+  data:
+    driver: bridge
+    # No route to or from the outside world. Postgres and Redis have no business
+    # reaching the internet, and nothing outside this stack can reach them.
+    internal: true
+
+volumes:
+  pg_data:
+  redis_data:
+  caddy_data:
+  caddy_config:

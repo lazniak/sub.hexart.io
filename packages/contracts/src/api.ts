@@ -57,6 +57,7 @@ export const BillingProfile = z.object({
 export type StartSessionRequest = z.infer<typeof StartSessionRequest>
 export type StartSessionResponse = z.infer<typeof StartSessionResponse>
 export type StartSessionError = z.infer<typeof StartSessionError>
+export type RotateProjectorTokenResponse = z.infer<typeof RotateProjectorTokenResponse>
 export type GlossaryUpsert = z.infer<typeof GlossaryUpsert>
 export type BillingProfile = z.infer<typeof BillingProfile>
 

@@ -8,6 +8,7 @@ import {
   ProjectorAttach,
   ProjectorPing,
   RelayMessage,
+  type ProjectorRole,
 } from '@sub/contracts'
 
 /**
@@ -23,7 +24,7 @@ import {
  *     brings every projector back in lockstep and stampedes the relay.
  */
 
-export type ProjectorRole = 'captions' | 'voice'
+export type { ProjectorRole }
 
 export interface UseProjectorSocketOptions {
   token: string

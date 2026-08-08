@@ -8,6 +8,7 @@ import {
   type CaptionCard,
   type EndReason,
   type NoticeCode,
+  type ProjectorRole,
   type RelayMessage,
   type SessionConfig,
   type StudioMessage,
@@ -20,7 +21,7 @@ import type { TtsAudioChunk } from './providers/elevenlabs-tts.js'
 import type { SessionHandle } from './registry.js'
 
 export type SessionState = 'INIT' | 'RUNNING' | 'DRAINING' | 'CLOSED'
-export type ProjectorRole = 'captions' | 'voice'
+export type { ProjectorRole }
 
 export interface OutboundSocket {
   send(payload: string): void

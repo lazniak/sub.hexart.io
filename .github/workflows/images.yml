@@ -70,6 +70,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+
+      - name: Stop grace period must outlast the relay drain
+        run: node .github/scripts/drain-guard.mjs
+
       - name: Compose resolves, and provider keys stay out of the web container
         run: |
           set -a

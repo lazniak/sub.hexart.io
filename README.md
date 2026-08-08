@@ -63,6 +63,12 @@ pnpm verify
 
 typecheck + lint + test + build. **Musi przechodzić przed każdym PR.**
 
+Wdrożenie na VPS: [`infra/README.md`](infra/README.md).
+
+## Stan
+
+Kod wszystkich warstw jest napisany i `pnpm verify` przechodzi (158 testów). **Żadna sesja nie przeszła jeszcze przez prawdziwe ElevenLabs ani OpenRouter** — testy mockują dostawców, bo płatne API w CI są zakazane (AGENTS.md §6). Pierwszy realny strumień audio to osobny, obowiązkowy krok; szczegóły i reszta ścieżki krytycznej w [`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ---
 
 ## Zasady w trzech zdaniach

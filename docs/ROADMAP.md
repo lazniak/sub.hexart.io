@@ -2,6 +2,21 @@
 
 Milestone'y ułożone tak, żeby agenci z różnych pasów pracowali **jednocześnie**, nie czekając na siebie. Kluczem jest M0: kontrakty i schemat DB powstają pierwsze, potem reszta pracuje przeciw stabilnym interfejsom.
 
+## Stan na 2026-08-08
+
+| Milestone | Stan |
+|---|---|
+| M0 Fundament | **gotowe** |
+| M1 Rdzeń | **kod gotowy**, brak weryfikacji na żywym mikrofonie |
+| M2 Tłumaczenie i lektor | **kod gotowy**, brak weryfikacji na żywych API |
+| M3 Konta i credits | **kod gotowy** |
+| M4 Płatności i strona | **kod gotowy**, brak katalogu Paddle i danych rejestrowych |
+| M5 Twardnienie | **niezrobione** — to jest teraz ścieżka krytyczna |
+
+`pnpm verify` zielone: 158 testów, typecheck, lint, build produkcyjny.
+
+**Czego kod nie udowadnia:** żadna sesja nie przeszła jeszcze przez prawdziwe ElevenLabs ani OpenRouter. Testy mockują dostawców (bo płatne API w CI to zakaz z AGENTS.md §6), więc pierwszy realny strumień audio jest osobnym, obowiązkowym krokiem — patrz M5.
+
 ---
 
 ## M0 — Fundament *(sekwencyjnie, ~1 dzień, jeden agent)*
@@ -71,8 +86,11 @@ Cel: **własnym głosem widzę napisy w OBS.** Bez kont, bez płatności, klucze
 
 ---
 
-## M5 — Twardnienie *(równolegle)*
+## M5 — Twardnienie *(równolegle)* ← **tutaj jesteśmy**
 
+- [ ] **Pierwszy realny strumień**: klucze ElevenLabs i OpenRouter w `infra/.env`, jedna sesja na żywym mikrofonie, zmierzone `medianStabilizeMs` i `rewriteRate`. Dopóki to nie przejdzie, cała reszta M5 jest przedwczesna.
+- [ ] Wdrożenie na VPS: `infra/deploy.sh`, certyfikat Caddy, migracja bazy, `/api/health` zielone
+- [ ] Katalog Paddle (sandbox) → `PADDLE_CATALOG`, pełny przebieg zakupu do ledgera
 - [ ] Playwright e2e: rejestracja → trial → studio → projector → zakup
 - [ ] Testy odporności: zerwanie sieci, restart relay, padnięcie providera, refresh OBS
 - [ ] Telemetria jakości + alerty (`droppedCards`, `cpsP95`, rozjazd ledgera)

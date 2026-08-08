@@ -76,7 +76,7 @@ async function startHarness(): Promise<Harness> {
   const userId = randomUUID()
   const logger = createLogger('silent')
 
-  let acceptedToken: string | null = 'pt_web_minted'
+  let acceptedToken: string | null = 'pt_web_minted_0123456789'
   let handshakeDelayMs = 0
 
   const deps: RelayServerDeps = {
@@ -92,7 +92,7 @@ async function startHarness(): Promise<Harness> {
       return new SessionActor({
         sessionId: request.claims.sid,
         userId: request.claims.sub,
-        projectorToken: 'pt_relay_local',
+        projectorToken: 'pt_relay_local_0123456789',
         config: request.claims.cfg,
         watermark: false,
         studio: request.studio,
@@ -122,9 +122,7 @@ async function startHarness(): Promise<Harness> {
       })
     },
     async resolveProjector(token) {
-      return acceptedToken !== null && token === acceptedToken
-        ? registry.get(sessionId)
-        : undefined
+      return acceptedToken !== null && token === acceptedToken ? registry.get(sessionId) : undefined
     },
   }
 
@@ -272,7 +270,7 @@ describe('projector token', () => {
       JSON.stringify({
         t: 'attach',
         protocolVersion: PROTOCOL_VERSION,
-        token: 'pt_web_minted',
+        token: 'pt_web_minted_0123456789',
         role: 'captions',
       }),
     )
@@ -290,7 +288,7 @@ describe('projector token', () => {
       JSON.stringify({
         t: 'attach',
         protocolVersion: PROTOCOL_VERSION,
-        token: 'pt_relay_local',
+        token: 'pt_relay_local_0123456789',
         role: 'captions',
       }),
     )
@@ -302,7 +300,7 @@ describe('projector token', () => {
   it('stops accepting a rotated token without waiting for the session to end', async () => {
     harness = await startHarness()
     await startSession(harness)
-    harness.setProjectorToken('pt_web_rotated')
+    harness.setProjectorToken('pt_web_rotated_0123456789')
 
     const projector = connect(harness.port, '/projector')
     await once(projector, 'open')
@@ -310,7 +308,7 @@ describe('projector token', () => {
       JSON.stringify({
         t: 'attach',
         protocolVersion: PROTOCOL_VERSION,
-        token: 'pt_web_minted',
+        token: 'pt_web_minted_0123456789',
         role: 'captions',
       }),
     )

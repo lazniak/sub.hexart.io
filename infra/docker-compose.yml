@@ -89,6 +89,11 @@ services:
       PADDLE_ENV: ${PADDLE_ENV:-production}
       PADDLE_API_KEY: ${PADDLE_API_KEY:-}
       PADDLE_WEBHOOK_SECRET: ${PADDLE_WEBHOOK_SECRET:-}
+      # priceId:kind:credits[:planCode], comma separated. Sandbox and production
+      # catalogs use different ids, and a wrong mapping grants the wrong credits.
+      PADDLE_CATALOG: ${PADDLE_CATALOG:-}
+      # Stamped onto the art. 38 pkt 13 consent record at checkout.
+      TERMS_VERSION: ${TERMS_VERSION:-2026-08-08}
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-noreply@sub.hexart.io}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -110,13 +115,13 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      # No dedicated health route exists yet, so this asserts the weaker but
-      # lane-independent property: the server answers HTTP without a 5xx.
+      # /api/health checks the database and Redis, so a green container really
+      # means the app can serve, not merely that Node is listening.
       test:
         - CMD
         - node
         - -e
-        - "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
       interval: 15s
       timeout: 5s
       retries: 5

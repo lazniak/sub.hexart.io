@@ -159,10 +159,6 @@ export function StudioClient(props: Props) {
     setError('')
     setNotice('')
     setCards([])
-    // The previous session's link stops routing the moment that session ends;
-    // leaving it on screen invites pasting a dead URL into OBS.
-    setProjectorUrl('')
-    setCopied(false)
     setStatus('starting')
 
     let res: Response
@@ -189,16 +185,12 @@ export function StudioClient(props: Props) {
     }
 
     setSession(payload)
+    setProjectorUrl(payload.projectorUrl)
     setRemaining({ credits: payload.creditsAvailable, seconds: payload.estimatedSeconds })
 
     // The JWT lives in this closure and nowhere else: no storage, no state, no
     // logs. It is single use with a 60 second life. SECURITY.md §3.
     const client = new RelayClient(payload.relayUrl, {
-      // The relay is the only process that can route a projector, so the token it
-      // announces in `ready` is the one that resolves. Showing anything else hands
-      // the operator a Browser Source that silently never attaches.
-      onReady: (msg) =>
-        setProjectorUrl(`${window.location.origin}/projector/${msg.projectorToken}`),
       onPartial: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
       onCommit: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
       onRetract: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
@@ -250,15 +242,6 @@ export function StudioClient(props: Props) {
     })
   }
 
-  /**
-   * Rotation writes a new digest onto the session row, which is the record of
-   * record. Routing, however, is owned by the relay for the life of the socket:
-   * it mints the token it announces in `ready` and resolves projectors against
-   * that map alone. Until the relay grows a rotate message (cross-lane), the only
-   * thing that actually kills a link shown on air is stopping the session — so
-   * that is what the operator is told, rather than being handed a URL that would
-   * silently never attach.
-   */
   async function rotateProjectorToken() {
     if (!session) return
     let res: Response
@@ -268,14 +251,16 @@ export function StudioClient(props: Props) {
       setError('Brak połączenia z serwerem.')
       return
     }
-    const payload = (await res.json().catch(() => null)) as { message?: string } | null
-    if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as {
+      projectorUrl?: string
+      message?: string
+    } | null
+    if (!res.ok || !payload?.projectorUrl) {
       setError(payload?.message ?? 'Nie udało się wygenerować nowego linku.')
       return
     }
-    setNotice(
-      'Stary link został unieważniony po stronie konta. Zatrzymaj i uruchom sesję ponownie, żeby dostać działający link do OBS.',
-    )
+    setProjectorUrl(payload.projectorUrl)
+    setCopied(false)
   }
 
   async function copyLink() {

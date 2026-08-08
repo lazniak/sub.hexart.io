@@ -99,6 +99,16 @@ reason ∈ {
 - hexart Sp. z o.o. wystawia **jedną fakturę miesięcznie na rzecz Paddle** (usługa poza terytorium kraju, odwrotne obciążenie) — brak rejestracji VAT OSS, brak faktur per klient, brak obowiązku KSeF wobec klientów końcowych.
 - Dane firmowe klienta (nazwa, NIP, adres) zbieramy w `billing_profiles` i przekazujemy do Paddle w `customData` — trafiają na dokument Paddle.
 
+### Katalog produktów
+
+Mapowanie `priceId → co klient kupił` siedzi w zmiennej `PADDLE_CATALOG`, nie w kodzie:
+
+```
+PADDLE_CATALOG="pri_abc:subscription:300:starter,pri_def:subscription:1000:creator,pri_ghi:topup:1000"
+```
+
+Powód: sandbox i produkcja mają **różne identyfikatory cen**, a pomyłka w mapowaniu przyznaje złą liczbę credits. Trzymanie tego w kodzie oznaczałoby deploy przy każdej zmianie katalogu i realne ryzyko rozjazdu między środowiskami. `GET /api/checkout` zwraca katalog, żeby cennik i backend nie mogły się rozejść.
+
 ### Webhooki → ledger
 
 | Zdarzenie Paddle | Efekt |

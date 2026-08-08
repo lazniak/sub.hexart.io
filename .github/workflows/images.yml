@@ -1,0 +1,126 @@
+name: images
+
+# The deploy path is only real if the images build. Verifying on Linux here also
+# covers what a Windows developer cannot check locally: `output: standalone`
+# needs symlinks, which Windows refuses without developer mode.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'infra/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/images.yml'
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            dockerfile: infra/Dockerfile.web
+          - name: relay
+            dockerfile: infra/Dockerfile.relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: runtime
+          push: false
+          load: true
+          tags: sub-hexart/${{ matrix.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          build-args: |
+            NEXT_PUBLIC_APP_URL=https://sub.hexart.io
+            NEXT_PUBLIC_RELAY_WS_URL=wss://relay.sub.hexart.io
+
+      - name: Image must not run as root
+        run: |
+          user=$(docker image inspect sub-hexart/${{ matrix.name }}:ci --format '{{.Config.User}}')
+          if [ -z "$user" ] || [ "$user" = "root" ] || [ "$user" = "0" ]; then
+            echo "::error::${{ matrix.name }} image runs as root"
+            exit 1
+          fi
+          echo "runs as: $user"
+
+      - name: No provider secrets baked into the image
+        run: |
+          if docker history --no-trunc sub-hexart/${{ matrix.name }}:ci \
+             | grep -qiE 'ELEVENLABS_API_KEY_[A-Z]+=[^ $]|OPENROUTER_MANAGEMENT_API_KEY=[^ $]|PROVIDER_KEY_ENC_KEY=[^ $]|PADDLE_API_KEY=[^ $]'; then
+            echo "::error::a provider secret is present in the image history"
+            exit 1
+          fi
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compose resolves, and provider keys stay out of the web container
+        run: |
+          set -a
+          ACME_EMAIL=ci@example.invalid
+          NEXT_PUBLIC_APP_URL=https://sub.hexart.io
+          NEXT_PUBLIC_RELAY_WS_URL=wss://relay.sub.hexart.io
+          POSTGRES_PASSWORD=ci
+          REDIS_PASSWORD=ci
+          AUTH_SECRET=0123456789012345678901234567890123456789
+          SESSION_JWT_PRIVATE_KEY=ci
+          SESSION_JWT_PUBLIC_KEY=ci
+          SESSION_JWT_PUBLIC_KEY_RELAY=ci
+          IP_HASH_SALT=0123456789abcdef
+          ELEVENLABS_API_KEY_STT=ci
+          ELEVENLABS_API_KEY_TTS=ci
+          OPENROUTER_MANAGEMENT_API_KEY=ci
+          OPENROUTER_MODEL_FAST=ci/model
+          OPENROUTER_MODEL_QUALITY=ci/model
+          PROVIDER_KEY_ENC_KEY=ci
+          set +a
+          docker compose -f infra/docker-compose.yml config --format json > /tmp/compose.json
+
+          # The web process renders HTML. A provider key in its environment would
+          # be one SSR bug away from the wire. AGENTS.md §7.
+          leaked=$(jq -r '
+            .services.web.environment
+            | keys[]
+            | select(test("^(ELEVENLABS_|OPENROUTER_|PROVIDER_KEY_ENC_KEY)"))
+          ' /tmp/compose.json)
+          if [ -n "$leaked" ]; then
+            echo "::error::provider keys in the web service environment: $leaked"
+            exit 1
+          fi
+
+          # The relay verifies session JWTs; it has no business minting them.
+          minting=$(jq -r '
+            .services.relay.environment
+            | keys[]
+            | select(test("^(AUTH_SECRET|SESSION_JWT_PRIVATE_KEY|PADDLE_)"))
+          ' /tmp/compose.json)
+          if [ -n "$minting" ]; then
+            echo "::error::signing or billing secrets in the relay environment: $minting"
+            exit 1
+          fi
+
+          # Postgres and Redis must never be reachable from the host.
+          exposed=$(jq -r '
+            [.services.postgres.ports // empty, .services.redis.ports // empty]
+            | flatten | length
+          ' /tmp/compose.json)
+          if [ "$exposed" != "0" ]; then
+            echo "::error::postgres or redis publishes a host port"
+            exit 1
+          fi

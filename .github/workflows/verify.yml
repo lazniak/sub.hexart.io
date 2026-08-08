@@ -1,0 +1,94 @@
+name: verify
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Guard rail: no paid provider calls from CI. Mocks only.
+  CI_NO_PAID_APIS: "1"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test -- --coverage
+
+      - name: Build
+        run: pnpm build
+
+      - name: Coverage gates (caption-engine 90%, billing 95%)
+        run: pnpm coverage:gate
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  client-bundle-scan:
+    # Provider keys must never reach the browser bundle. A hit blocks the deploy.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter web build
+      - name: Scan client bundle for provider key patterns
+        run: |
+          if grep -rIEn 'sk_[a-zA-Z0-9]{16,}|xi-api-key|pdl_(live|sdbx)_|sk-or-v1-' \
+             apps/web/.next/static apps/web/.next/server/app 2>/dev/null; then
+            echo "::error::Provider key pattern found in build output"
+            exit 1
+          fi
+
+  ledger-guard:
+    # credit_ledger is append-only. Migrations that mutate it are rejected.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject UPDATE/DELETE on credit_ledger
+        run: |
+          if grep -rIEni '(update|delete[[:space:]]+from)[[:space:]]+["]?credit_ledger' \
+             packages/db/migrations 2>/dev/null; then
+            echo "::error::credit_ledger is append-only — no UPDATE/DELETE allowed"
+            exit 1
+          fi

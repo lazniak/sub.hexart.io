@@ -1,0 +1,45 @@
+node_modules/
+.pnpm-store/
+
+# build
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# env & secrets — NIGDY w repo
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+age.key
+secrets.dec.yaml
+*.dec.yaml
+
+# test / coverage
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+.vitest/
+
+# narzędzia
+.turbo/
+.vercel/
+.wrangler/
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.shared.json
+
+# lokalne notatki agentów
+.agents/scratch/

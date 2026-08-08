@@ -25,11 +25,12 @@ Wybierasz mikrofon i język. Dostajesz link. Wklejasz go w OBS jako Browser Sour
 
 ## Stack
 
-**Web** Next.js 15 · React 19 · Tailwind · shadcn/ui · Better Auth — Vercel FRA1
-**Relay** Bun · uWebSockets.js — Hetzner FSN1 (EU)
-**Dane** Postgres (Neon EU) · Redis (Upstash EU) · Drizzle
+**Web** Next.js 15 (standalone) · React 19 · Tailwind 4 · własna warstwa auth (jose + argon2id)
+**Relay** Node 22 · `ws` · pino
+**Dane** Postgres 17 · Redis 7 · Drizzle
 **AI** ElevenLabs Scribe v2 Realtime (STT) · OpenRouter (tłumaczenie) · ElevenLabs Flash v2.5 (TTS)
 **Płatności** Paddle (Merchant of Record)
+**Hosting** jeden VPS, Docker Compose za Caddy (automatyczne TLS) — `sub.hexart.io`
 
 ---
 

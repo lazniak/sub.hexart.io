@@ -75,6 +75,8 @@ Praca równoległa działa tylko wtedy, gdy agenci **nie dotykają tych samych p
 
 Plik `.agents/lanes.md` zawiera aktualną, maszynowo czytelną wersję tej tabeli (`CODEOWNERS` jest z niej generowany).
 
+Granice pasów są **egzekwowane w CI** — `.github/workflows/lane-guard.yml` odrzuca PR dotykający więcej niż jednego pasa (chyba że ma etykietę `rfc` lub `governance`) oraz PR wprowadzający pliki spoza jakiegokolwiek pasa.
+
 ### Reguły
 - Agent pracuje **w jednym pasie na raz**.
 - Plik `apps/web/package.json`, `pnpm-lock.yaml`, `tsconfig.base.json` = **strefa wspólna**: zmiana tylko wtedy, gdy jest częścią zadania, jedna zmiana na PR, nigdy refaktor „przy okazji".

@@ -29,15 +29,19 @@ Live subtitles + tłumaczenie + lektor AI, wpinane do OBS jako Browser Source.
               │ ledger writes (batched 10s + on close)
               ▼
    ┌──────────────────────┐     ┌───────────────────────┐
-   │ Postgres (Neon EU)   │     │ Redis (Upstash EU)    │
-   │ users, ledger, plans │     │ sesje, rate-limit, RT │
+   │ Postgres 17          │     │ Redis 7               │
+   │ users, ledger, plany │     │ sesje, rate-limit, RT │
    └──────────────────────┘     └───────────────────────┘
 
    ┌──────────────────────┐
-   │ WEB (Next.js 15,     │  landing · auth · panel · studio · projector · webhooki Paddle
-   │ Vercel FRA1)         │
+   │ WEB (Next.js 15      │  landing · auth · panel · studio · projektor · webhooki Paddle
+   │ standalone)          │
    └──────────────────────┘
 ```
+
+**Gdzie to stoi.** Wszystko na jednym VPS w Docker Compose za Caddy (automatyczne TLS).
+Rekord A `sub.hexart.io` wskazuje na tę maszynę. Postgres i Redis nie wystawiają
+portów na hosta — sieć wewnętrzna kontenerów. Runbook → [`infra/README.md`](../infra/README.md).
 
 **Dlaczego relay, a nie połączenie przeglądarka → ElevenLabs?**
 ElevenLabs oferuje single-use tokeny do klienta (`tokens.singleUse.create("realtime_scribe")`, 15 min). Kuszące, ale wtedy:
@@ -45,7 +49,7 @@ ElevenLabs oferuje single-use tokeny do klienta (`tokens.singleUse.create("realt
 - nie mamy dokładnego pomiaru zużycia (tylko szacunek po fakcie),
 - tłumaczenie i TTS i tak muszą iść przez nasz backend (klucz OpenRouter, kolejka TTS).
 
-Relay kosztuje ~15–25 ms dodatkowej latencji (Vercel FRA1 ↔ Hetzner FSN1 ↔ ElevenLabs EU) i daje pełną kontrolę rozliczeń. Ta wymiana jest opłacalna.
+Relay kosztuje ~15–25 ms dodatkowej latencji (przeglądarka ↔ VPS ↔ ElevenLabs EU) i daje pełną kontrolę rozliczeń. Ta wymiana jest opłacalna.
 
 ---
 
@@ -216,12 +220,12 @@ Pełny opis → [`SECURITY.md`](./SECURITY.md).
 
 | Wybór | Dlaczego | Odrzucone |
 |---|---|---|
-| Bun + uWebSockets.js w relay | Najwyższa przepustowość WS na Node-owym ekosystemie, niski GC | Deno (mniejszy ekosystem), Go (podział języka w monorepo) |
-| Hetzner FSN1 | ~15 EUR/mc, EU, niski RTT do Frankfurtu | Fly.io (drożej przy stałym obciążeniu), Cloudflare DO (limity CPU na streamie audio) |
-| Neon Postgres EU | Serverless, branching pod PR, region EU | Supabase (nadmiar funkcji), RDS (drogo w tej skali) |
+| Node 22 + `ws` w relay | Przenośny build, jeden runtime w całym repo, przewidywalny w Dockerze | Bun + uWebSockets.js (szybsze, ale gorsza przenośność obrazu), Go (podział języka w monorepo) |
+| Jeden VPS, Docker Compose, Caddy | Domena już wskazuje na tę maszynę; pełna kontrola RODO, brak vendor lock-in, jeden rachunek | Vercel + osobny host relay (dwa rachunki, transfer danych między dostawcami), Cloudflare DO (limity CPU na streamie audio) |
+| Postgres 17 w kontenerze | Zero zależności zewnętrznych, dane u nas, backup `pg_dump` w cronie | Neon/Supabase (kolejny podprocesor i kolejny transfer do ujawnienia) |
 | Drizzle | Typy z schematu, migracje w SQL, zero magii | Prisma (waga silnika w relay) |
 | Paddle | Merchant of Record — VAT UE po ich stronie | Stripe (VAT OSS + KSeF po naszej) |
-| Better Auth | Kontrola nad sesjami, TOTP, brak vendor lock-in | Clerk/Auth0 (koszt per MAU, dane poza EU) |
+| Własna warstwa auth (jose + argon2id) | Pełna kontrola nad sesjami i rotacją, dane wyłącznie u nas, zero kosztu per MAU | Clerk/Auth0 (koszt per MAU, kolejny podprocesor poza EU) |
 | PCM16 16 kHz | Wymóg Scribe v2 Realtime (`PCM_16000`) | Opus (wymagałby transkodowania w relay) |
 
 ---
@@ -230,8 +234,9 @@ Pełny opis → [`SECURITY.md`](./SECURITY.md).
 
 | Env | Web | Relay | DB |
 |---|---|---|---|
-| `dev` | localhost:3000 | localhost:8787 | Neon branch `dev` |
-| `staging` | staging.sub.hexart.io | relay-staging (ten sam VPS, inny port) | Neon branch `staging` |
-| `prod` | sub.hexart.io | relay.sub.hexart.io | Neon `main` |
+| `dev` | localhost:3000 | localhost:8787 | Postgres w Dockerze, lokalnie |
+| `prod` | sub.hexart.io | relay.sub.hexart.io | Postgres 17 w Compose na VPS |
 
-Osobne klucze providerów per środowisko. Paddle sandbox na `dev`/`staging`. **Prod nigdy nie jest celem testów.**
+Staging dochodzi, gdy pojawi się pierwszy płacący klient — wcześniej to koszt bez zwrotu.
+Osobne klucze providerów per środowisko. Paddle sandbox poza produkcją.
+**Produkcja nigdy nie jest celem testów.**

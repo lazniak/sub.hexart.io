@@ -1,0 +1,24 @@
+name: lane-guard
+
+# Parallel agents only stay out of each other's way if the boundary is enforced.
+# AGENTS.md §3 defines the lanes; this job makes crossing one fail the PR.
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lanes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check the PR stays inside one lane
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: node .github/scripts/lane-guard.mjs

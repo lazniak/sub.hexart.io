@@ -1,0 +1,11 @@
+# RFC 9116
+Contact: mailto:security@hexart.pl
+Expires: 2027-08-08T00:00:00.000Z
+Preferred-Languages: pl, en
+Canonical: https://sub.hexart.io/.well-known/security.txt
+Policy: https://sub.hexart.io/legal/regulamin
+
+# Zgłoszenia przyjmujemy w języku polskim i angielskim.
+# Prosimy o 90 dni na wydanie poprawki przed publikacją szczegółów.
+# Nie testuj na kontach innych użytkowników i nie pobieraj cudzych danych —
+# do weryfikacji podatności wystarczy własne konto testowe.

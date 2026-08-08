@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+Disallow: /app/
+Disallow: /api/
+# Widok projektora to warstwa OBS, nie treść do indeksowania.
+Disallow: /projector/
+
+Sitemap: https://sub.hexart.io/sitemap.xml

@@ -173,13 +173,7 @@ describe('projector allowlist', () => {
     const samples: RelayMessage[] = [
       { t: 'credits', remaining: 1, secondsLeft: 1, burnRatePerMin: 1 },
       { t: 'notice', level: 'warn', code: 'LOW_CREDITS' },
-      {
-        t: 'ready',
-        sessionId: 's',
-        projectorToken: 'pt_x',
-        protocolVersion: '1.0.0',
-        burnRatePerMin: 1,
-      },
+      { t: 'ready', sessionId: 's', protocolVersion: '1.1.0', burnRatePerMin: 1 },
       { t: 'end', reason: 'user', creditsSpent: 1 },
     ]
     for (const sample of samples) expect(isProjectorSafe(sample)).toBe(false)

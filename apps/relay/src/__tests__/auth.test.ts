@@ -1,6 +1,6 @@
 import { SignJWT, exportSPKI, generateKeyPair } from 'jose'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { RELAY_JWT_AUDIENCE } from '@sub/contracts'
+import { PROTOCOL_VERSION, RELAY_JWT_AUDIENCE } from '@sub/contracts'
 import {
   AuthError,
   assertProtocolSupported,
@@ -120,7 +120,7 @@ describe('verifySessionJwt', () => {
 
 describe('assertProtocolSupported', () => {
   it('accepts the current protocol version', () => {
-    expect(() => assertProtocolSupported('1.0.0')).not.toThrow()
+    expect(() => assertProtocolSupported(PROTOCOL_VERSION)).not.toThrow()
   })
 
   it('rejects a version outside the compatibility window', () => {

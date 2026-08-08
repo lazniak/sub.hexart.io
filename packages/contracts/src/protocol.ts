@@ -36,14 +36,17 @@ export type StudioMessage = z.infer<typeof StudioMessage>
  * Projector → Relay
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/** `voice` receives TTS audio only; `captions` receives text only. */
+export const ProjectorRole = z.enum(['captions', 'voice'])
+export type ProjectorRole = z.infer<typeof ProjectorRole>
+
 export const ProjectorAttach = z.object({
   t: z.literal('attach'),
   protocolVersion: z.string(),
   token: z.string().min(16),
   /** Set after an OBS Browser Source refresh so the relay can backfill. */
   lastSeq: z.number().int().nonnegative().optional(),
-  /** `voice` receives TTS audio only; `captions` receives text only. */
-  role: z.enum(['captions', 'voice']).default('captions'),
+  role: ProjectorRole.default('captions'),
 })
 
 export const ProjectorPing = z.object({ t: z.literal('ping') })
@@ -146,10 +149,17 @@ export const RelayNotice = z.object({
   detail: z.string().optional(),
 })
 
+/**
+ * No projector token here on purpose.
+ *
+ * `/api/session/start` mints it and stores only its digest, so the relay cannot
+ * know it — it can only hash what a browser source presents. A field the relay
+ * has to invent is a field that lies. The studio uses the token from the API
+ * response. See docs/rfc/0002-drop-projector-token-from-ready.md.
+ */
 export const RelayReady = z.object({
   t: z.literal('ready'),
   sessionId: z.string(),
-  projectorToken: z.string(),
   protocolVersion: z.string(),
   burnRatePerMin: z.number(),
 })

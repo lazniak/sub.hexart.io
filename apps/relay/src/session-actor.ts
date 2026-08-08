@@ -184,7 +184,6 @@ export class SessionActor implements SessionHandle {
     this.emit({
       t: 'ready',
       sessionId: this.sessionId,
-      projectorToken: this.projectorToken,
       protocolVersion: PROTOCOL_VERSION,
       burnRatePerMin: this.meter.burnRatePerMin,
     })
@@ -499,7 +498,9 @@ export class SessionActor implements SessionHandle {
     this.state = 'CLOSED'
 
     this.deps.studio.close(1000, reason)
-    for (const projector of this.projectors) projector.socket.close(1000, reason)
+    // The reason describes the account — `credits_exhausted` is not something an
+    // on-air surface should ever be told, even in a close frame it does not read.
+    for (const projector of this.projectors) projector.socket.close(1000, 'session_ended')
     this.projectors.clear()
     this.deps.onClosed(this.sessionId)
   }

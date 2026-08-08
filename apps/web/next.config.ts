@@ -1,39 +1,8 @@
 import type { NextConfig } from 'next'
 
-const RELAY_WS = process.env.NEXT_PUBLIC_RELAY_WS_URL ?? 'ws://localhost:8787'
-
-/**
- * Two content security policies.
- *
- * The projector runs inside somebody's OBS and is composited onto a live
- * broadcast, so it gets a policy that allows nothing but its own styles and the
- * relay socket — no scripts from anywhere else, no analytics, no fonts.
- */
-const projectorCsp = [
-  "default-src 'none'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self'",
-  "img-src 'self' data:",
-  `connect-src ${RELAY_WS} ${RELAY_WS.replace('ws', 'http')}`,
-  "base-uri 'none'",
-  "form-action 'none'",
-  "frame-ancestors *",
-].join('; ')
-
-const appCsp = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdn.paddle.com https://sandbox-cdn.paddle.com",
-  "style-src 'self' 'unsafe-inline'",
-  "font-src 'self' data:",
-  "img-src 'self' data: blob:",
-  `connect-src 'self' ${RELAY_WS} https://*.paddle.com`,
-  "frame-src https://*.paddle.com",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  'upgrade-insecure-requests',
-].join('; ')
+// Content-Security-Policy is set in middleware.ts, not here: it needs a
+// per-request nonce so Next can tag the inline scripts it emits for hydration,
+// and a static header cannot carry one. Everything below is nonce-independent.
 
 const config: NextConfig = {
   /**
@@ -67,29 +36,33 @@ const config: NextConfig = {
   turbopack: {
     resolveExtensions: ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.json'],
   },
+
   async headers() {
     return [
       {
         source: '/projector/:path*',
         headers: [
-          { key: 'Content-Security-Policy', value: projectorCsp },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'no-referrer' },
-          // OBS embeds this as a Browser Source; framing must stay open.
+          // No X-Frame-Options here on purpose: OBS embeds this as a Browser
+          // Source, and the CSP from middleware already scopes framing.
           { key: 'Permissions-Policy', value: 'microphone=(), camera=(), geolocation=()' },
         ],
       },
       {
-        // Everything except the projector — its headers are set above and must
-        // not be overridden by the frame-denying app policy.
         source: '/((?!projector).*)',
         headers: [
-          { key: 'Content-Security-Policy', value: appCsp },
-          { key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'Permissions-Policy', value: 'microphone=(self), camera=(), geolocation=(), payment=(self)' },
+          {
+            key: 'Permissions-Policy',
+            value: 'microphone=(self), camera=(), geolocation=(), payment=(self)',
+          },
         ],
       },
     ]

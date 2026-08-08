@@ -17,6 +17,14 @@ import { createWsSocket, type SocketFactory, type UpstreamSocket } from './socke
 export const TTS_OUTPUT_FORMAT = 'mp3_44100_128'
 const INACTIVITY_TIMEOUT_SECONDS = 180
 
+/**
+ * A transient blip must not silence the voice for the rest of a two-hour stream,
+ * but an unbounded retry against a paid provider is a billing incident. Two
+ * attempts with backoff covers a dropped connection; a bad credential or a quota
+ * wall exhausts them in under three seconds and degrades once, for good.
+ */
+const RECONNECT_DELAYS_MS = [500, 2_000] as const
+
 export interface TtsAudioChunk {
   cardId: string
   lang: string
@@ -36,6 +44,9 @@ export interface TtsClientOptions {
   onAudio(chunk: TtsAudioChunk): void
   onError(error: { code: NoticeCode; message: string }): void
   createSocket?: SocketFactory
+  /** Injected so reconnect timing is deterministic under test. */
+  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
+  clearTimer?: (handle: ReturnType<typeof setTimeout>) => void
 }
 
 export function buildTtsUrl(options: {
@@ -82,6 +93,8 @@ export class ElevenLabsTtsClient {
    */
   private readonly pending: PendingUtterance[] = []
   private readonly backlog: string[] = []
+  private attempts = 0
+  private retryTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(private readonly options: TtsClientOptions) {}
 
@@ -121,6 +134,7 @@ export class ElevenLabsTtsClient {
   close(): void {
     if (this.closed) return
     this.closed = true
+    this.cancelRetry()
     if (this.opened) this.socket?.send(JSON.stringify({ text: '' }))
     this.socket?.close(1000, 'session closed')
     this.socket = null
@@ -129,6 +143,8 @@ export class ElevenLabsTtsClient {
 
   private handleOpen(): void {
     this.opened = true
+    // Only a socket that actually opened earns a fresh retry budget.
+    this.attempts = 0
     // The initial message must be a blank space; it carries the voice settings.
     this.socket?.send(
       JSON.stringify({
@@ -146,7 +162,20 @@ export class ElevenLabsTtsClient {
   private handleClose(): void {
     this.opened = false
     this.socket = null
-    if (this.closed) return
+    if (this.closed || this.unavailable) return
+
+    // Bounded retry. `attempts` only resets on a socket that actually opened, so
+    // a credential that fails the handshake cannot loop.
+    const delay = RECONNECT_DELAYS_MS[this.attempts]
+    if (delay !== undefined) {
+      this.attempts += 1
+      const setTimer = this.options.setTimer ?? setTimeout
+      this.retryTimer = setTimer(() => {
+        this.retryTimer = null
+        this.start()
+      }, delay)
+      return
+    }
     // A mid-session close is not retried: the voice track degrades, captions do not.
     this.markUnavailable()
     this.options.onError({ code: 'TTS_UNAVAILABLE', message: 'voice socket closed' })
@@ -159,6 +188,14 @@ export class ElevenLabsTtsClient {
     this.socket = null
     this.pending.length = 0
     this.backlog.length = 0
+    this.cancelRetry()
+  }
+
+  private cancelRetry(): void {
+    if (this.retryTimer === null) return
+    const clearTimer = this.options.clearTimer ?? clearTimeout
+    clearTimer(this.retryTimer)
+    this.retryTimer = null
   }
 
   private handleMessage(raw: string): void {

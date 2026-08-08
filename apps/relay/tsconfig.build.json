@@ -1,0 +1,7 @@
+{
+  // Build config. Tests stay in tsconfig.json so `typecheck` covers them, but they
+  // must not reach the runtime image — shipping them would drag vitest into the
+  // production tree for no reason.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/__tests__/**"]
+}

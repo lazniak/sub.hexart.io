@@ -6,7 +6,6 @@ import {
   RATE_TRANSLATION_PER_LANG_PER_MIN,
   RATE_VOICE_PER_MIN,
   TOPUP_VALIDITY_DAYS,
-  estimateSeconds,
   formatAirtime,
   type Plan,
 } from '@sub/billing'
@@ -15,7 +14,7 @@ import { MERCHANT_OF_RECORD } from '../components/company'
 import { PlanCard } from '../components/plan-card'
 import { PlanComparison } from '../components/plan-comparison'
 import { TopupCards } from '../components/topup-cards'
-import { formatCredits } from '../components/format'
+import { airtimeSeconds, formatCredits } from '../components/format'
 
 export const metadata: Metadata = {
   title: 'Cennik',
@@ -26,7 +25,7 @@ export const metadata: Metadata = {
 const PAID_PLANS: Plan[] = [PLANS.starter, PLANS.creator, PLANS.pro]
 
 const TRIAL_AIRTIME = formatAirtime(
-  estimateSeconds(PLANS.trial.credits, { targetLanguages: 0, voiceEnabled: false }),
+  airtimeSeconds(PLANS.trial.credits, { targetLanguages: 0, voiceEnabled: false }),
 )
 
 const SECTION = 'mx-auto max-w-6xl px-4 py-12'
@@ -154,8 +153,9 @@ export default function PricingPage() {
             subskrypcji.
           </p>
           <p>
-            Zużywamy najpierw credits z abonamentu, dopiero potem z doładowań — po to, żeby te z
-            dłuższą ważnością zostały na koncie jak najdłużej.
+            Zużywamy zawsze te credits, które przepadłyby najwcześniej: najpierw z planu
+            bezpłatnego, potem z abonamentu, na końcu z doładowań — po to, żeby te z dłuższą
+            ważnością zostały na koncie jak najdłużej.
           </p>
           <p>
             Credits są jednostką rozliczeniową usługi, nie pieniądzem elektronicznym. Nie podlegają

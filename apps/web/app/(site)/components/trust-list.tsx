@@ -15,7 +15,8 @@ export function TrustList() {
       </li>
       <li>
         <strong className="font-semibold text-paper">Serwery i baza w Unii Europejskiej.</strong>{' '}
-        Relay w Niemczech, baza we Frankfurcie. Dostawcy spoza EOG są wymienieni z nazwy.{' '}
+        Serwer i baza danych stoją na jednej maszynie w Niemczech. Dostawcy spoza EOG są wymienieni
+        z nazwy.{' '}
         <Link href="/legal/podprocesorzy" className="text-accent underline underline-offset-2">
           Lista podprocesorów
         </Link>

@@ -14,7 +14,7 @@ Maszynowo czytelne rozszerzenie §3 z [`AGENTS.md`](../AGENTS.md). Z tego pliku 
 | `web-app` | `apps/web/app/(app)/**`, `apps/web/app/api/session/**`, `apps/web/lib/studio/**` | `contracts` | playwright |
 | `web-site` | `apps/web/app/(site)/**`, `apps/web/app/(legal)/**`, `apps/web/messages/**` | — | a11y (axe) |
 | `projector` | `apps/web/app/projector/**` | `contracts`, `engine` | playwright |
-| `billing` | `packages/billing/**`, `apps/web/app/api/webhooks/paddle/**` | `db` | vitest ≥ 95% |
+| `billing` | `packages/billing/**`, `apps/web/app/api/webhooks/paddle/**`, `apps/web/app/api/checkout/**`, `apps/web/lib/server/paddle.ts` | `data` | vitest ≥ 95% |
 | `auth-sec` | `apps/web/lib/auth/**`, `apps/web/middleware.ts`, `apps/web/app/(auth)/**` | `db` | vitest + playwright |
 | `data` | `packages/db/**` | — | migracja w górę i w dół |
 | `infra` | `infra/**`, `.github/**`, `Dockerfile*` | — | build obrazu |

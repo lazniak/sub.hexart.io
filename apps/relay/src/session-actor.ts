@@ -1,5 +1,6 @@
 import type { CaptionEngine, CaptionOp, CardView, SttEvent } from '@sub/caption-engine'
 import {
+  PROJECTOR_SAFE_EVENTS,
   PROTOCOL_VERSION,
   SILENCE_PAUSE_MS,
   isProjectorSafe,
@@ -282,7 +283,16 @@ export class SessionActor implements SessionHandle {
     const oldest = this.history[0]
     if (!oldest || oldest.seq > lastSeq + 1) return null
     return this.history
-      .filter((entry) => entry.seq > lastSeq && allowedForRole(entry.type, role))
+      .filter(
+        (entry) =>
+          entry.seq > lastSeq &&
+          // The allowlist is re-applied here and not merely inherited from `emit`.
+          // Replay is a second way onto the projector's wire, and it must be gated
+          // by the same list — not by the accident that today only safe events
+          // carry a `seq` and therefore reach the history buffer.
+          isProjectorSafeType(entry.type) &&
+          allowedForRole(entry.type, role),
+      )
       .map((entry) => entry.json)
   }
 
@@ -472,7 +482,17 @@ export class SessionActor implements SessionHandle {
     this.pendingTranslations.clear()
 
     // Final flush before anyone is told the session ended — the ledger is the record.
-    await this.meter.close()
+    // A gateway failure must not abort the close: every caller reaches this through
+    // `void close(...)`, so a rejection here would be an unhandled rejection *and*
+    // would leave the sockets open and the session in the registry forever.
+    try {
+      await this.meter.close()
+    } catch (error) {
+      this.deps.logger.error(
+        { sessionId: this.sessionId, err: String(error) },
+        'final ledger settlement failed',
+      )
+    }
     const spent = this.meter.snapshot().spent
 
     this.emit({ t: 'end', reason, creditsSpent: spent })
@@ -532,6 +552,11 @@ export function toCaptionCard(view: CardView): CaptionCard {
     at: Math.max(0, Math.round(view.atMs)),
     ...(tr ? { tr } : {}),
   }
+}
+
+/** The allowlist from `@sub/contracts`, checked by event type alone (replay has no message). */
+export function isProjectorSafeType(type: RelayMessage['t']): boolean {
+  return (PROJECTOR_SAFE_EVENTS as readonly string[]).includes(type)
 }
 
 /** The `/voice` browser source is audio-only; sending it caption traffic wastes bandwidth. */

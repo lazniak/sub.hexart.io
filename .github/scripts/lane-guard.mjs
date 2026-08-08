@@ -23,7 +23,12 @@ const LANES = {
   ],
   'web-site': ['apps/web/app/(site)/', 'apps/web/app/(legal)/', 'apps/web/messages/'],
   projector: ['apps/web/app/projector/'],
-  billing: ['packages/billing/', 'apps/web/app/api/webhooks/paddle/'],
+  billing: [
+    'packages/billing/',
+    'apps/web/app/api/webhooks/paddle/',
+    'apps/web/app/api/checkout/',
+    'apps/web/lib/server/paddle.ts',
+  ],
   data: ['packages/db/'],
   infra: ['infra/', '.github/', 'Dockerfile'],
 }

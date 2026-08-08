@@ -1,5 +1,5 @@
-import { TOPUP_PACKS, TOPUP_VALIDITY_DAYS, estimateSeconds, formatAirtime } from '@sub/billing'
-import { formatMoney } from './format'
+import { TOPUP_PACKS, TOPUP_VALIDITY_DAYS, formatAirtime } from '@sub/billing'
+import { airtimeSeconds, formatMoney } from './format'
 
 const BASE_CONFIG = { targetLanguages: 0, voiceEnabled: false }
 
@@ -18,7 +18,7 @@ export function TopupCards() {
               lub {formatMoney(pack.price.eur, 'eur')} netto
             </p>
             <p className="mt-3 text-sm text-muted">
-              ≈ {formatAirtime(estimateSeconds(pack.credits, BASE_CONFIG))} samych napisów
+              ≈ {formatAirtime(airtimeSeconds(pack.credits, BASE_CONFIG))} samych napisów
             </p>
           </li>
         ))}

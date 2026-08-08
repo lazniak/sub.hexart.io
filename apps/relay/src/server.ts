@@ -55,6 +55,16 @@ export interface RelayServerDeps {
   jwtKey: SessionJwtKey
   jtiStore: JtiStore
   createSession: SessionFactory
+  /**
+   * Resolves an opaque projector token to a live session.
+   *
+   * The token is minted by the web app and only its digest is stored, so the
+   * relay cannot hold a copy: it hashes what the browser source presents and
+   * asks the sessions table. Going through the table on every attach is also
+   * what makes "Wygeneruj nowy link" (SECURITY.md §3) take effect immediately —
+   * a cached token would keep a revoked OBS link alive for the whole session.
+   */
+  resolveProjector: (token: string) => Promise<SessionActor | undefined>
   /** Salt for hashing client IPs; raw addresses never reach a log line. */
   ipSalt: string
   now?: () => number
@@ -89,7 +99,7 @@ export function createRelayServer(deps: RelayServerDeps): RelayServer {
 
   httpServer.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
     const path = new URL(req.url ?? '/', 'http://relay.local').pathname
-    const target = path === '/studio' ? studioWss : path === '/projector' ? projectorWss : null
+    const target = isStudioPath(path) ? studioWss : path === '/projector' ? projectorWss : null
     if (!target) {
       socket.destroy()
       return
@@ -142,6 +152,20 @@ export function createRelayServer(deps: RelayServerDeps): RelayServer {
   }
 }
 
+/**
+ * Studio upgrade paths.
+ *
+ * `/api/session/start` hands the studio `${NEXT_PUBLIC_RELAY_WS_URL}/session` as
+ * its `relayUrl`, so that is the path a browser actually dials; `/studio` is the
+ * name used in the relay's own docs and deploy notes. Both are accepted rather
+ * than picking one and breaking a deployed client.
+ */
+export const STUDIO_PATHS = ['/session', '/studio'] as const
+
+function isStudioPath(path: string): boolean {
+  return (STUDIO_PATHS as readonly string[]).includes(path)
+}
+
 interface ConnectionContext {
   now(): number
   limiter: HandshakeLimiter
@@ -175,8 +199,13 @@ function handleStudio(
 
   ws.on('message', (data: RawData, isBinary: boolean) => {
     if (isBinary) {
+      // `hello` is answered asynchronously (signature, Redis, Postgres) while the
+      // studio is already streaming 50 frames a second. Frames that land in that
+      // window are dropped, never treated as a protocol violation — closing the
+      // socket here would kill every session at start-up. Only audio sent before
+      // any `hello` at all is a violation.
       if (!actor) {
-        ws.close(CLOSE_PROTOCOL_ERROR, 'audio before handshake')
+        if (!handshakeDone) ws.close(CLOSE_PROTOCOL_ERROR, 'audio before handshake')
         return
       }
       const frame = decodeAudioFrame(toBytes(data))
@@ -284,6 +313,8 @@ function handleProjector(
     actor: SessionActor
     handle: ReturnType<SessionActor['attachProjector']>
   } | null = null
+  let attaching = false
+  let disposed = false
 
   const timer = setTimeout(() => {
     if (!attached) ws.close(CLOSE_PROTOCOL_ERROR, 'attach timeout')
@@ -301,7 +332,7 @@ function handleProjector(
       return
     }
 
-    if (attached) return
+    if (attached || attaching) return
     clearTimeout(timer)
 
     try {
@@ -311,20 +342,33 @@ function handleProjector(
       return
     }
 
-    const actor = deps.registry.byToken(parsed.data.token)
-    if (!actor) {
-      // Same response for an unknown token and a finished session: the projector
-      // link is public by nature and must not confirm what exists.
-      ws.close(CLOSE_NOT_FOUND, 'no such session')
-      return
-    }
+    attaching = true
+    const { token, role, lastSeq } = parsed.data
+    void (async () => {
+      let actor: SessionActor | undefined
+      try {
+        actor = await deps.resolveProjector(token)
+      } catch (error) {
+        deps.logger.warn({ ipHash, err: String(error) }, 'projector token lookup failed')
+      }
+      attaching = false
 
-    const role: ProjectorRole = parsed.data.role
-    const handle = actor.attachProjector(socket, role, parsed.data.lastSeq)
-    attached = { actor, handle }
+      // Same response for an unknown token, a rotated one and a finished session:
+      // the projector link is public by nature and must not confirm what exists.
+      if (!actor) {
+        ws.close(CLOSE_NOT_FOUND, 'no such session')
+        return
+      }
+      // The socket may have gone away while Postgres was answering.
+      if (disposed) return
+
+      const handle = actor.attachProjector(socket, role as ProjectorRole, lastSeq)
+      attached = { actor, handle }
+    })()
   })
 
   ws.on('close', () => {
+    disposed = true
     clearTimeout(timer)
     if (attached) attached.actor.detachProjector(attached.handle)
   })

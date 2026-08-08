@@ -66,6 +66,16 @@ export class ElevenLabsTtsClient {
   private opened = false
   private closed = false
   /**
+   * Set the first time the upstream socket drops or errors mid-session.
+   *
+   * Without it, `write()` finds `socket === null` and calls `start()` again, so
+   * every sentence opens a fresh socket with no backoff — a failing credential or
+   * a quota wall turns one session into a reconnect storm against a paid provider.
+   * The stated behaviour is to degrade the voice track once and leave captions
+   * alone, so the flag makes that one-way.
+   */
+  private unavailable = false
+  /**
    * The provider does not echo a correlation id, so utterances are attributed in
    * order: audio belongs to the head of this queue until `isFinal` retires it.
    * Sending one sentence per flush is what keeps that assumption true.
@@ -76,7 +86,7 @@ export class ElevenLabsTtsClient {
   constructor(private readonly options: TtsClientOptions) {}
 
   start(): void {
-    if (this.socket || this.closed) return
+    if (this.socket || this.closed || this.unavailable) return
     const factory = this.options.createSocket ?? createWsSocket
     this.socket = factory(
       buildTtsUrl({
@@ -90,8 +100,10 @@ export class ElevenLabsTtsClient {
         onOpen: () => this.handleOpen(),
         onMessage: (data) => this.handleMessage(data),
         onClose: () => this.handleClose(),
-        onError: (error) =>
-          this.options.onError({ code: 'TTS_UNAVAILABLE', message: error.message }),
+        onError: (error) => {
+          this.markUnavailable()
+          this.options.onError({ code: 'TTS_UNAVAILABLE', message: error.message })
+        },
       },
     )
   }
@@ -99,7 +111,7 @@ export class ElevenLabsTtsClient {
   /** One committed sentence. Flushed immediately — the voice must not wait for the next one. */
   speak(cardId: string, text: string): void {
     const clean = text.trim()
-    if (clean.length === 0 || this.closed) return
+    if (clean.length === 0 || this.closed || this.unavailable) return
 
     this.pending.push({ cardId, lang: this.options.lang })
     // The protocol requires text to end with a single space.
@@ -136,7 +148,17 @@ export class ElevenLabsTtsClient {
     this.socket = null
     if (this.closed) return
     // A mid-session close is not retried: the voice track degrades, captions do not.
+    this.markUnavailable()
     this.options.onError({ code: 'TTS_UNAVAILABLE', message: 'voice socket closed' })
+  }
+
+  /** One-way. Drops the queues too, or they grow for every sentence of the session. */
+  private markUnavailable(): void {
+    this.unavailable = true
+    this.opened = false
+    this.socket = null
+    this.pending.length = 0
+    this.backlog.length = 0
   }
 
   private handleMessage(raw: string): void {
@@ -163,6 +185,7 @@ export class ElevenLabsTtsClient {
   }
 
   private write(payload: string): void {
+    if (this.unavailable || this.closed) return
     if (!this.socket) this.start()
     if (this.opened) this.socket?.send(payload)
     else this.backlog.push(payload)

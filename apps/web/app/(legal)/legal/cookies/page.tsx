@@ -20,18 +20,21 @@ interface CookieRow {
   lifetime: string
 }
 
+/**
+ * Only mechanisms the application actually sets. A cookie listed here that no code
+ * writes is a false statement in a published document, so nothing goes on this list
+ * on the strength of a plan. There is deliberately no CSRF-token cookie: cross-site
+ * request forgery is held off by `SameSite=Lax` on the session cookie itself
+ * (apps/web/lib/auth/session.ts). If a token cookie is ever introduced, it is added
+ * here in the same change.
+ */
 const COOKIES: CookieRow[] = [
   {
     name: 'Cookie sesji zalogowanego użytkownika',
-    purpose: 'Utrzymanie zalogowania między żądaniami. Bez niego panel i studio nie działają.',
+    purpose:
+      'Utrzymanie zalogowania między żądaniami oraz — dzięki atrybutowi SameSite=Lax — ochrona przed sfałszowaniem żądania z innej witryny. Bez niego panel i studio nie działają.',
     type: 'Niezbędne, własne, HttpOnly, Secure, SameSite=Lax',
     lifetime: 'Do wylogowania, nie dłużej niż 30 dni',
-  },
-  {
-    name: 'Token ochrony przed CSRF',
-    purpose: 'Zabezpieczenie formularzy przed sfałszowaniem żądania z innej witryny.',
-    type: 'Niezbędne, własne',
-    lifetime: 'Czas trwania sesji przeglądarki',
   },
   {
     name: 'Pamięć lokalna ustawień studia',

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 /**
  * AES-256-GCM for provider keys at rest.
@@ -81,6 +81,19 @@ export function encryptionVersionOf(payload: string): number {
 function parseVersion(part: string): number {
   if (!/^v\d+$/.test(part)) throw new CryptoError('malformed ciphertext envelope')
   return Number(part.slice(1))
+}
+
+/**
+ * Digest of a projector token.
+ *
+ * `caption_sessions.projector_token_hash` stores only this digest, and the web
+ * app is the process that mints the token (`/api/session/start`, and the rotate
+ * endpoint). The relay therefore never learns a projector token — it hashes what
+ * a browser source presents and looks the digest up. Must stay byte-identical to
+ * `apps/web/lib/server/projector-token.ts`: sha256, base64url.
+ */
+export function hashProjectorToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url')
 }
 
 function b64(buf: Buffer): string {

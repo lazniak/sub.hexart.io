@@ -5,11 +5,10 @@ import {
   PLANS,
   burnRatePerMinute,
   creditsForSeconds,
-  estimateSeconds,
   formatAirtime,
   type PlanCode,
 } from '@sub/billing'
-import { formatBurnRate, formatCredits } from './format'
+import { airtimeSeconds, formatBurnRate, formatCredits } from './format'
 
 const PAID_ORDER: PlanCode[] = ['starter', 'creator', 'pro']
 const MAX_LANGS = PLANS.pro.maxTargetLanguages
@@ -36,7 +35,7 @@ export function CreditCalculator() {
 
   const config = { targetLanguages, voiceEnabled }
   const rate = burnRatePerMinute(config)
-  const seconds = estimateSeconds(credits, config)
+  const seconds = airtimeSeconds(credits, config)
   const minutes = Math.round(seconds / 60)
 
   const onMinutesChange = (raw: string) => {

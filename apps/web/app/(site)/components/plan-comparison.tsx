@@ -1,5 +1,5 @@
-import { PLANS, estimateSeconds, formatAirtime, type Plan, type PlanCode } from '@sub/billing'
-import { formatMoney } from './format'
+import { PLANS, formatAirtime, type Plan, type PlanCode } from '@sub/billing'
+import { airtimeSeconds, formatMoney } from './format'
 
 const ORDER: PlanCode[] = ['trial', 'starter', 'creator', 'pro']
 const BASE_CONFIG = { targetLanguages: 0, voiceEnabled: false }
@@ -24,7 +24,7 @@ const ROWS: Row[] = [
   { label: 'Credits w okresie', value: (plan) => String(plan.credits) },
   {
     label: 'To znaczy samych napisów',
-    value: (plan) => formatAirtime(estimateSeconds(plan.credits, BASE_CONFIG)),
+    value: (plan) => formatAirtime(airtimeSeconds(plan.credits, BASE_CONFIG)),
   },
   { label: 'Języki docelowe', value: (plan) => String(plan.maxTargetLanguages) },
   { label: 'Sesje równoległe', value: (plan) => String(plan.maxConcurrentSessions) },

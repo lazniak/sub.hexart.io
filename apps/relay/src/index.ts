@@ -1,13 +1,19 @@
 import { randomBytes } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import Redis from 'ioredis'
 import { CaptionEngine } from '@sub/caption-engine'
 import { TOPUP_PACKS, planOf } from '@sub/billing'
 import type { SessionConfig } from '@sub/contracts'
-import { createDb, glossaries, providerKeys, type Database } from '@sub/db'
+import { captionSessions, createDb, glossaries, providerKeys, type Database } from '@sub/db'
 import { createRedisJtiStore, importSessionJwtKey } from './auth.js'
 import { DRAIN_TIMEOUT_MS, loadConfig, type RelayConfig } from './config.js'
-import { encryptSecret, decryptSecret, parseEncryptionKey, CURRENT_KEY_VERSION } from './crypto.js'
+import {
+  encryptSecret,
+  decryptSecret,
+  hashProjectorToken,
+  parseEncryptionKey,
+  CURRENT_KEY_VERSION,
+} from './crypto.js'
 import { createLogger, type Logger } from './logger.js'
 import { Meter, createLedgerGateway } from './metering.js'
 import { ElevenLabsSttClient } from './providers/elevenlabs-stt.js'
@@ -40,6 +46,7 @@ const server = createRelayServer({
   }),
   ipSalt,
   createSession: (request) => buildSession(request, { config, logger, db }),
+  resolveProjector: (token) => resolveProjectorSession(db, token),
 })
 
 await server.listen()
@@ -52,7 +59,14 @@ await server.listen()
 let shuttingDown = false
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-  process.on(signal, () => void shutdown(signal))
+  process.on(signal, () => {
+    // A rejection here would be unhandled and would take the process down mid-drain,
+    // losing the very ledger flush the drain exists to perform.
+    shutdown(signal).catch((error: unknown) => {
+      logger.error({ signal, err: String(error) }, 'shutdown failed')
+      process.exit(1)
+    })
+  })
 }
 
 async function shutdown(signal: string): Promise<void> {
@@ -66,6 +80,35 @@ async function shutdown(signal: string): Promise<void> {
 
   logger.info('relay stopped')
   process.exit(0)
+}
+
+/* ── Projector routing ─────────────────────────────────────────────────────── */
+
+/**
+ * Maps an OBS browser source onto the session it is allowed to watch.
+ *
+ * `/api/session/start` mints the token and stores only its digest, so the lookup
+ * is by digest and the relay never holds a working link. Reading the row on every
+ * attach — instead of caching the digest for the life of the session — is what
+ * makes the panel's "new link" button revoke the old URL the moment it is pressed.
+ */
+async function resolveProjectorSession(
+  database: Database,
+  token: string,
+): Promise<SessionActor | undefined> {
+  const rows = await database
+    .select({ id: captionSessions.id })
+    .from(captionSessions)
+    .where(
+      and(
+        eq(captionSessions.projectorTokenHash, hashProjectorToken(token)),
+        isNull(captionSessions.endedAt),
+      ),
+    )
+    .limit(1)
+
+  const sessionId = rows[0]?.id
+  return sessionId === undefined ? undefined : registry.get(sessionId)
 }
 
 /* ── Session assembly ──────────────────────────────────────────────────────── */
@@ -109,8 +152,11 @@ async function buildSession(request: SessionRequest, deps: RuntimeDeps): Promise
   const actorDeps: SessionActorDeps = {
     sessionId,
     userId,
-    // Minted here, announced in `ready`: the relay is the only process that can
-    // route a projector, so it is the only one that can own the routing token.
+    // Echoed in `ready` to satisfy `RelayReady`, and nothing more: the token that
+    // actually routes a projector is minted by `/api/session/start` and resolved
+    // through `caption_sessions.projector_token_hash` (see resolveProjectorSession).
+    // `RelayJwtClaims` does not carry it, so the relay cannot repeat the real one;
+    // this value grants no access. Aligning the two needs a `contracts` RFC.
     projectorToken: `pt_${randomBytes(32).toString('base64url')}`,
     config: cfg,
     watermark: plan.watermark,

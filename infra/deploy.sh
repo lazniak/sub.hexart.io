@@ -27,7 +27,11 @@ LOCK_FILE="${LOCK_FILE:-/tmp/sub-hexart-deploy.lock}"
 BRANCH="${DEPLOY_BRANCH:-main}"
 SITE_URL="${SITE_URL:-https://sub.hexart.io}"
 RELAY_URL="${RELAY_URL:-https://relay.sub.hexart.io}"
-WAIT_TIMEOUT="${WAIT_TIMEOUT:-240}"
+# Must exceed the relay's stop_grace_period (630s): `up -d` stops the old relay
+# before it can wait for the new one, and a live session makes that stop take the
+# full drain. A timeout shorter than the drain turns a healthy deploy into a
+# spurious rollback.
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-900}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-30}"
 KEEP_TAGS="${KEEP_TAGS:-5}"
 

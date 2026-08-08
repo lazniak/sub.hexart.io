@@ -81,6 +81,25 @@ export interface Subprocessor {
   dataScope: string
 }
 
+/**
+ * The art. 28(2) disclosure. It must describe the infrastructure that actually
+ * runs, not the one the design documents once planned.
+ *
+ * `docs/LEGAL.md` §4 and `docs/ARCHITECTURE.md` §3.1/§9 still list Vercel (web),
+ * Neon (Postgres) and Upstash (Redis) as separate providers. That layout was
+ * withdrawn by the accepted `docs/rfc/0001-single-vps-topology.md`, which folds
+ * all four into one VPS and says so in as many words: "jeden podprocesor
+ * infrastrukturalny zamiast czterech […] krótsza lista w polityce prywatności".
+ * `infra/docker-compose.yml` runs postgres:17-alpine and redis:7-alpine as local
+ * containers, and `apps/web/lib/server/{db,redis}.ts` connect over the internal
+ * Compose network — so none of those three vendors receives any personal data.
+ *
+ * Naming a processor that processes nothing is not a harmless surplus: the Vercel
+ * row declared an SCC-based transfer to the United States that does not happen,
+ * and splitting the stack across four names understated how much sits with the
+ * one provider that does hold it. Those two documents are stale and belong to the
+ * `infra` / legal review, not to this lane.
+ */
 export const SUBPROCESSORS: Subprocessor[] = [
   {
     name: 'ElevenLabs (USA)',
@@ -109,31 +128,12 @@ export const SUBPROCESSORS: Subprocessor[] = [
   },
   {
     name: 'Hetzner (Niemcy)',
-    purpose: 'Hosting serwera relay przetwarzającego strumień audio.',
-    location: 'Niemcy (Falkenstein)',
+    purpose:
+      'Hosting całej aplikacji na jednym serwerze: strona i panel, serwer relay przetwarzający strumień audio, baza danych PostgreSQL oraz pamięć podręczna Redis.',
+    location: 'Niemcy',
     transferBasis: 'Przetwarzanie wyłącznie w EOG — transfer nie występuje',
-    dataScope: 'Ruch sesji w pamięci procesu. Bez trwałego zapisu audio i transkrypcji.',
-  },
-  {
-    name: 'Neon (Unia Europejska)',
-    purpose: 'Baza danych PostgreSQL: konta, salda credits, historia sesji.',
-    location: 'Unia Europejska (Frankfurt)',
-    transferBasis: 'Przetwarzanie wyłącznie w EOG — transfer nie występuje',
-    dataScope: 'Dane konta, ledger credits, metadane sesji (czas, języki, koszt). Bez treści.',
-  },
-  {
-    name: 'Upstash (Unia Europejska)',
-    purpose: 'Pamięć podręczna Redis: stan sesji, limity zapytań, tokeny projektora.',
-    location: 'Unia Europejska',
-    transferBasis: 'Przetwarzanie wyłącznie w EOG — transfer nie występuje',
-    dataScope: 'Krótkotrwały stan sesji (TTL 15 minut), skróty adresów IP na potrzeby limitów.',
-  },
-  {
-    name: 'Vercel (Unia Europejska / USA)',
-    purpose: 'Hosting warstwy webowej: strona, panel, studio.',
-    location: 'Region UE (Frankfurt); podmiot z siedzibą w USA',
-    transferBasis: 'Standardowe klauzule umowne (SCC) Komisji Europejskiej',
-    dataScope: 'Metadane żądań HTTP, logi techniczne. Bez audio i bez transkrypcji.',
+    dataScope:
+      'Dane konta, rejestr credits, metadane sesji (czas, języki, koszt), krótkotrwały stan sesji i skróty adresów IP na potrzeby limitów, logi techniczne. Ruch audio wyłącznie w pamięci procesu — bez trwałego zapisu dźwięku.',
   },
 ]
 

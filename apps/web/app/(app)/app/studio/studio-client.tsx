@@ -8,7 +8,13 @@ import {
   estimateSeconds,
   formatAirtime,
 } from '@sub/billing'
-import type { CaptionStyle, SessionConfig, StartSessionResponse } from '@sub/contracts'
+import {
+  SessionConfig,
+  type CaptionStyle,
+  type EndReason,
+  type NoticeCode,
+  type StartSessionResponse,
+} from '@sub/contracts'
 import { listMicrophones, startMicStream, type MicDevice, type MicStream } from '@/lib/studio/mic'
 import { RelayClient } from '@/lib/studio/relay-client'
 import { Button, Card, Field, Notice, controlClass } from '../../_components/ui'
@@ -56,24 +62,13 @@ interface PreviewCard {
   translation: string
 }
 
+/**
+ * Every value except the two the studio opinionates on comes from the schema, so
+ * a default changed in `packages/contracts` lands here without an edit. Writing
+ * them out again is how the studio and the relay quietly drift apart.
+ */
 function defaultConfig(): SessionConfig {
-  return {
-    srcLang: 'pl',
-    dstLangs: ['en'],
-    voice: { enabled: false, speed: 1.0 },
-    noVerbatim: true,
-    render: {
-      style: 'clean',
-      mode: 'rollup',
-      tail: 'ghost',
-      maxLines: 2,
-      maxCharsPerLine: 42,
-      fontSize: 44,
-      safeAreaPct: 5,
-      showSource: true,
-      showTranslation: true,
-    },
-  }
+  return SessionConfig.parse({ srcLang: 'pl', dstLangs: ['en'] })
 }
 
 export function StudioClient(props: Props) {
@@ -95,13 +90,25 @@ export function StudioClient(props: Props) {
   const micRef = useRef<MicStream | null>(null)
   const settingsKey = `studio:${props.userId}`
 
+  // React may re-run a state updater; sending on the socket from inside one would
+  // put a second `configure` on the wire for every slider move.
+  const configRef = useRef(config)
+  configRef.current = config
+
   // Settings are remembered per account. They are pure UI preferences — every
-  // one of them is re-validated server-side when the session starts.
+  // one of them is re-validated server-side when the session starts, and the
+  // restored blob goes through the schema so a stale or edited entry cannot
+  // produce a config the studio then fails to start with a generic error.
   useEffect(() => {
     const stored = window.localStorage.getItem(settingsKey)
     if (!stored) return
     try {
-      setConfig({ ...defaultConfig(), ...(JSON.parse(stored) as Partial<SessionConfig>) })
+      const restored = SessionConfig.safeParse({
+        ...defaultConfig(),
+        ...(JSON.parse(stored) as Record<string, unknown>),
+      })
+      if (restored.success) setConfig(restored.data)
+      else window.localStorage.removeItem(settingsKey)
     } catch {
       window.localStorage.removeItem(settingsKey)
     }
@@ -112,7 +119,7 @@ export function StudioClient(props: Props) {
   }, [settingsKey, config])
 
   useEffect(() => {
-    void listMicrophones().then(setDevices)
+    listMicrophones().then(setDevices, () => setDevices([]))
   }, [])
 
   const burn = {
@@ -127,12 +134,10 @@ export function StudioClient(props: Props) {
   }, [])
 
   const patchRender = useCallback((next: Partial<SessionConfig['render']>) => {
-    setConfig((prev) => {
-      const merged = { ...prev, render: { ...prev.render, ...next } }
-      // Render changes apply live in OBS — no source refresh, per PRODUCT.md §4.
-      relayRef.current?.configure({ render: merged.render })
-      return merged
-    })
+    const render = { ...configRef.current.render, ...next }
+    setConfig((prev) => ({ ...prev, render }))
+    // Render changes apply live in OBS — no source refresh, per PRODUCT.md §4.
+    relayRef.current?.configure({ render })
   }, [])
 
   const teardown = useCallback(async () => {
@@ -154,13 +159,26 @@ export function StudioClient(props: Props) {
     setError('')
     setNotice('')
     setCards([])
+    // The previous session's link stops routing the moment that session ends;
+    // leaving it on screen invites pasting a dead URL into OBS.
+    setProjectorUrl('')
+    setCopied(false)
     setStatus('starting')
 
-    const res = await fetch('/api/session/start', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ config }),
-    })
+    let res: Response
+    try {
+      res = await fetch('/api/session/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ config }),
+      })
+    } catch {
+      // Without this the button stays disabled on `starting` for good.
+      setStatus('idle')
+      setError('Brak połączenia z serwerem. Spróbuj ponownie.')
+      return
+    }
+
     const payload = (await res.json().catch(() => null)) as
       (StartSessionResponse & { message?: string }) | null
 
@@ -171,12 +189,16 @@ export function StudioClient(props: Props) {
     }
 
     setSession(payload)
-    setProjectorUrl(payload.projectorUrl)
     setRemaining({ credits: payload.creditsAvailable, seconds: payload.estimatedSeconds })
 
     // The JWT lives in this closure and nowhere else: no storage, no state, no
     // logs. It is single use with a 60 second life. SECURITY.md §3.
     const client = new RelayClient(payload.relayUrl, {
+      // The relay is the only process that can route a projector, so the token it
+      // announces in `ready` is the one that resolves. Showing anything else hands
+      // the operator a Browser Source that silently never attaches.
+      onReady: (msg) =>
+        setProjectorUrl(`${window.location.origin}/projector/${msg.projectorToken}`),
       onPartial: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
       onCommit: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
       onRetract: (msg) => upsertCard(msg.cardId, msg.text, msg.tr),
@@ -228,25 +250,42 @@ export function StudioClient(props: Props) {
     })
   }
 
+  /**
+   * Rotation writes a new digest onto the session row, which is the record of
+   * record. Routing, however, is owned by the relay for the life of the socket:
+   * it mints the token it announces in `ready` and resolves projectors against
+   * that map alone. Until the relay grows a rotate message (cross-lane), the only
+   * thing that actually kills a link shown on air is stopping the session — so
+   * that is what the operator is told, rather than being handed a URL that would
+   * silently never attach.
+   */
   async function rotateProjectorToken() {
     if (!session) return
-    const res = await fetch(`/api/session/${session.sessionId}/projector-token`, { method: 'POST' })
-    const payload = (await res.json().catch(() => null)) as {
-      projectorUrl?: string
-      message?: string
-    } | null
-    if (!res.ok || !payload?.projectorUrl) {
+    let res: Response
+    try {
+      res = await fetch(`/api/session/${session.sessionId}/projector-token`, { method: 'POST' })
+    } catch {
+      setError('Brak połączenia z serwerem.')
+      return
+    }
+    const payload = (await res.json().catch(() => null)) as { message?: string } | null
+    if (!res.ok) {
       setError(payload?.message ?? 'Nie udało się wygenerować nowego linku.')
       return
     }
-    setProjectorUrl(payload.projectorUrl)
-    setCopied(false)
+    setNotice(
+      'Stary link został unieważniony po stronie konta. Zatrzymaj i uruchom sesję ponownie, żeby dostać działający link do OBS.',
+    )
   }
 
   async function copyLink() {
     if (!projectorUrl) return
-    await navigator.clipboard.writeText(projectorUrl)
-    setCopied(true)
+    try {
+      await navigator.clipboard.writeText(projectorUrl)
+      setCopied(true)
+    } catch {
+      setError('Przeglądarka nie pozwoliła skopiować linku. Zaznacz go i skopiuj ręcznie.')
+    }
   }
 
   const langLimitReached = config.dstLangs.length >= props.plan.maxTargetLanguages
@@ -618,7 +657,8 @@ export function StudioClient(props: Props) {
   )
 }
 
-function noticeText(code: string): string {
+/** Typed against the contract so a new code added upstream fails the build here. */
+function noticeText(code: NoticeCode): string {
   switch (code) {
     case 'LOW_CREDITS':
       return 'Saldo spadło poniżej 20%. Doładuj konto, żeby nie przerwać transmisji.'
@@ -639,7 +679,7 @@ function noticeText(code: string): string {
   }
 }
 
-function endText(reason: string): string {
+function endText(reason: EndReason): string {
   switch (reason) {
     case 'credits_exhausted':
       return 'Sesja zakończona: skończyły się credits.'

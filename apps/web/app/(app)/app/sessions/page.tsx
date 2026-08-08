@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { desc, eq } from 'drizzle-orm'
 import { captionSessions } from '@sub/db'
 import { formatAirtime } from '@sub/billing'
+import type { EndReason } from '@sub/contracts'
 import { currentUser } from '@/lib/auth/session'
 import { db } from '@/lib/server/db'
 import { Card, EmptyState } from '../../_components/ui'
@@ -12,7 +13,8 @@ export const dynamic = 'force-dynamic'
 const dateFormat = new Intl.DateTimeFormat('pl-PL', { dateStyle: 'short', timeStyle: 'short' })
 const creditFormat = new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 2 })
 
-const END_REASON_LABEL: Record<string, string> = {
+/** Keyed by the contract enum: a reason added upstream fails the build, not the UI. */
+const END_REASON_LABEL: Record<EndReason, string> = {
   user: 'zakończona ręcznie',
   credits_exhausted: 'wyczerpane credits',
   idle_timeout: 'brak dźwięku',
@@ -76,7 +78,7 @@ export default async function SessionsPage() {
                   </td>
                   <td className="py-2 text-muted">
                     {row.endedAt
-                      ? (END_REASON_LABEL[row.endReason ?? ''] ?? row.endReason ?? '—')
+                      ? (END_REASON_LABEL[row.endReason as EndReason] ?? row.endReason ?? '—')
                       : 'trwa'}
                   </td>
                 </tr>

@@ -1,12 +1,12 @@
-import { estimateSeconds, formatAirtime, type Plan } from '@sub/billing'
-import { formatMoney, monthsFreeOnYearly } from './format'
+import { formatAirtime, type Plan } from '@sub/billing'
+import { airtimeSeconds, formatMoney, monthsFreeOnYearly } from './format'
 
 /** Airtime a plan's credits buy with captions only — the cheapest, honest baseline. */
 const BASE_CONFIG = { targetLanguages: 0, voiceEnabled: false }
 
 function features(plan: Plan): string[] {
   const list = [
-    `${plan.credits} credits miesięcznie ≈ ${formatAirtime(estimateSeconds(plan.credits, BASE_CONFIG))} samych napisów`,
+    `${plan.credits} credits miesięcznie ≈ ${formatAirtime(airtimeSeconds(plan.credits, BASE_CONFIG))} samych napisów`,
     `Do ${plan.maxTargetLanguages} ${plan.maxTargetLanguages === 1 ? 'języka' : 'języków'} tłumaczenia`,
     `${plan.maxConcurrentSessions} ${plan.maxConcurrentSessions === 1 ? 'sesja równoległa' : 'sesje równoległe'}`,
   ]

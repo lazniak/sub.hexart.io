@@ -200,8 +200,10 @@ export default function TermsPage() {
             i pozostają na Koncie także po zakończeniu subskrypcji.
           </li>
           <li>
-            Kolejność zużycia: najpierw Credits z abonamentu, następnie Credits z doładowań według
-            daty zakupu, od najstarszego.
+            Kolejność zużycia odpowiada kolejności wygasania — najpierw zużywane są Credits, które
+            przepadłyby najwcześniej: najpierw Credits z planu bezpłatnego, następnie Credits z
+            abonamentu, na końcu Credits z doładowań. Ta kolejność jest dla Użytkownika
+            najkorzystniejsza, bo najdłużej ważne Credits zostają na Koncie.
           </li>
           <li>
             Historia naliczeń jest zapisywana w rejestrze wyłącznie dopisywanym i dostępna

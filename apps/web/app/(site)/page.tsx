@@ -1,14 +1,15 @@
 import Link from 'next/link'
-import { PLANS, estimateSeconds, formatAirtime, type Plan } from '@sub/billing'
+import { PLANS, formatAirtime, type Plan } from '@sub/billing'
 import { AudienceTiles } from './components/audience-tiles'
 import { Cta } from './components/cta'
+import { airtimeSeconds } from './components/format'
 import { PlanCard } from './components/plan-card'
 import { ProofStrip } from './components/proof-strip'
 import { StepList } from './components/step-list'
 import { TrustList } from './components/trust-list'
 
 const TRIAL_AIRTIME = formatAirtime(
-  estimateSeconds(PLANS.trial.credits, { targetLanguages: 0, voiceEnabled: false }),
+  airtimeSeconds(PLANS.trial.credits, { targetLanguages: 0, voiceEnabled: false }),
 )
 
 const PAID_PLANS: Plan[] = [PLANS.starter, PLANS.creator, PLANS.pro]

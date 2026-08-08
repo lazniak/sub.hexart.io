@@ -60,7 +60,19 @@ Projector token dostaje osobną przestrzeń nazw (`pt_` + 32 losowe bajty, base6
 
 ## 5. Ochrona brzegu
 
-- **CSP** strict z nonce, bez `unsafe-inline`, bez `unsafe-eval`. `/projector/*` ma osobną, jeszcze węższą politykę: `default-src 'none'; connect-src wss://relay.sub.hexart.io; style-src 'nonce-...'; font-src 'self'`.
+- **CSP** budowane w `apps/web/middleware.ts`, bo wymaga nonce'a per żądanie.
+
+  | Zakres | Polityka |
+  |---|---|
+  | `/projector/*` | `default-src 'none'`, `script-src 'self' 'nonce-…'`, `connect-src` tylko relay. Zero źródeł trzecich, także analityki |
+  | `/app/*`, `/login`, `/register`, `/reset`, `/verify`, `/api/*` | nonce w `script-src`, bez `'unsafe-inline'` |
+  | `/`, `/pricing`, `/legal/*` | `script-src 'self' 'unsafe-inline'` |
+
+  Ostatni wiersz to świadomy kompromis, nie niedopatrzenie. Strona prerenderowana statycznie to jeden plik HTML — jej inline'owy skrypt hydratacji powstaje w czasie builda i **nie może** nieść nonce'a per żądanie, a obecność nonce'a w polityce każe przeglądarce zignorować `'unsafe-inline'`. Wysłanie polityki z nonce'em na taką stronę nie utwardza jej, tylko psuje hydratację. Te strony nie mają ciasteczek, sesji ani danych użytkownika; wszystko, co je ma, jest renderowane dynamicznie i dostaje nonce.
+
+  `apps/web/e2e/csp.spec.ts` sprawdza dla każdej trasy, czy serwowana polityka jest wykonalna dla jej własnego HTML — dodanie strony pod dynamicznym prefiksem albo przestawienie trasy na statyczną wywala test zamiast psuć produkcję po cichu.
+
+- **`blob:` w `script-src`** aplikacji jest wymagane: procesor AudioWorklet w studiu ładuje się z blob URL, a moduły workletów podlegają `script-src`. Bez tego mikrofon po prostu nie startuje.
 - HSTS z `preload`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` blokujący wszystko poza `microphone=(self)`.
 - Zero skryptów firm trzecich na `/projector/*` — także analityki. Ta strona idzie na antenę.
 - Rate limit (Redis, sliding window):

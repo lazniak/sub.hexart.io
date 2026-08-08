@@ -14,9 +14,7 @@ const config: NextConfig = {
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
   reactStrictMode: true,
   poweredByHeader: false,
-  experimental: {
-    typedRoutes: true,
-  },
+  typedRoutes: true,
 
   // The workspace packages ship TypeScript source, not a build artifact.
   transpilePackages: ['@sub/contracts', '@sub/billing', '@sub/caption-engine', '@sub/db'],

@@ -29,7 +29,7 @@ function projectorCsp(n: string): string {
   return [
     "default-src 'none'",
     `script-src 'self' 'nonce-${n}'`,
-    `style-src 'self' 'nonce-${n}' 'unsafe-inline'`,
+    "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data:",
     `connect-src ${RELAY_WS} ${RELAY_HTTP}`,
@@ -40,15 +40,36 @@ function projectorCsp(n: string): string {
   ].join('; ')
 }
 
-function appCsp(n: string): string {
+/**
+ * Routes that Next renders per request, and can therefore carry a nonce.
+ *
+ * A statically prerendered page is a single HTML file; its inline hydration
+ * script is written at build time, so no per-request nonce can ever appear on
+ * it. Sending a nonce policy to such a page does not harden it — it stops it
+ * from hydrating, because a nonce in the policy makes the browser ignore
+ * `'unsafe-inline'`. The split below is therefore load-bearing, and
+ * `e2e/csp.spec.ts` fails if a page is served a policy it cannot satisfy.
+ */
+const DYNAMIC_PREFIXES = ['/app', '/projector', '/login', '/register', '/reset', '/verify', '/api']
+
+function isDynamicRoute(pathname: string): boolean {
+  return DYNAMIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))
+}
+
+function appCsp(n: string | null): string {
+  // Public marketing and legal pages are static: they get `'unsafe-inline'`
+  // because there is no alternative, and they carry no cookie, no session and no
+  // user data. Everything that does — panel, studio, auth — is dynamic and gets
+  // the nonce.
+  const inlinePolicy = n ? `'nonce-${n}'` : "'unsafe-inline'"
   return [
     "default-src 'self'",
     // `blob:` is required for the studio's AudioWorklet: the processor ships as a
     // string loaded through a blob URL, and worklet modules fall under script-src.
     // Without it the microphone silently fails to start.
-    `script-src 'self' 'nonce-${n}' blob: https://cdn.paddle.com https://sandbox-cdn.paddle.com`,
+    `script-src 'self' ${inlinePolicy} blob: https://cdn.paddle.com https://sandbox-cdn.paddle.com`,
     "worker-src 'self' blob:",
-    `style-src 'self' 'nonce-${n}' 'unsafe-inline'`,
+    "style-src 'self' 'unsafe-inline'",
     "font-src 'self' data:",
     "img-src 'self' data: blob:",
     `connect-src 'self' ${RELAY_WS} https://*.paddle.com`,
@@ -69,9 +90,12 @@ function appCsp(n: string): string {
  */
 export function middleware(req: NextRequest): NextResponse {
   const requestId = req.headers.get(REQUEST_ID_HEADER) ?? crypto.randomUUID()
-  const isProjector = req.nextUrl.pathname.startsWith('/projector')
-  const n = nonce()
-  const csp = isProjector ? projectorCsp(n) : appCsp(n)
+  const { pathname } = req.nextUrl
+  const isProjector = pathname.startsWith('/projector')
+  // The projector is in DYNAMIC_PREFIXES, so it always gets a nonce — its policy
+  // has no `'unsafe-inline'` fallback and must not be reachable without one.
+  const n = isDynamicRoute(pathname) ? nonce() : null
+  const csp = isProjector && n ? projectorCsp(n) : appCsp(n)
 
   const headers = new Headers(req.headers)
   headers.set(REQUEST_ID_HEADER, requestId)
